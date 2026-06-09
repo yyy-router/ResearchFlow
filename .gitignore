@@ -21,6 +21,9 @@ data/
 .DS_Store
 Thumbs.db
 
+# typescript
+tsconfig.tsbuildinfo
+
 # debug
 npm-debug.log*
 docs
