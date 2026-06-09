@@ -27,3 +27,4 @@ tsconfig.tsbuildinfo
 # debug
 npm-debug.log*
 docs
+CLAUDE.md
