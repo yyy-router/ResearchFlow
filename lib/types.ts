@@ -1,3 +1,10 @@
+export interface AgentConfig {
+  llmApiKey: string;
+  llmProvider: "openai" | "anthropic" | "deepseek";
+  researchId: string;
+  model?: string;
+}
+
 export interface ResearchConfig {
   llmApiKey: string;
   llmProvider: "openai" | "anthropic" | "deepseek";
