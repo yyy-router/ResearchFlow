@@ -47,6 +47,7 @@ vi.mock("@/lib/storage", () => ({
 
 vi.mock("deepagents", () => ({
   createDeepAgent: mockCreateDeepAgent,
+  FilesystemBackend: vi.fn(),
 }));
 
 vi.mock("../researcher", () => ({
@@ -63,6 +64,16 @@ vi.mock("../editor", () => ({
 
 vi.mock("../tools/bocha-search", () => ({
   createBochaSearchTool: vi.fn(() => ({ name: "bocha_web_search" })),
+}));
+
+vi.mock("@/lib/tracing", () => ({
+  traceResearchRun: vi.fn(
+    async (_id: string, _topic: string, fn: () => Promise<void>) => fn()
+  ),
+}));
+
+vi.mock("@/lib/llm", () => ({
+  resolveModel: vi.fn(() => "claude-sonnet-4-5-20250929"),
 }));
 
 vi.mock("node:crypto", () => ({
