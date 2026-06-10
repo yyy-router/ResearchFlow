@@ -1,4 +1,5 @@
-import { createDeepAgent } from "deepagents";
+import { createDeepAgent, FilesystemBackend } from "deepagents";
+import path from "node:path";
 import { runResearcher } from "./researcher";
 import { runAnalyst } from "./analyst";
 import { runEditor } from "./editor";
@@ -10,7 +11,9 @@ import {
   readFile,
   listFiles,
 } from "@/lib/storage";
-import type { ResearchConfig, ResearchPlan, TodoItem } from "@/lib/types";
+import type { ResearchConfig, ResearchPlan, TodoItem, AgentConfig } from "@/lib/types";
+import { traceResearchRun } from "@/lib/tracing";
+import { resolveModel } from "@/lib/llm";
 import { randomUUID } from "node:crypto";
 
 export async function runResearch(
@@ -23,10 +26,23 @@ export async function runResearch(
 
   (async () => {
     try {
+      await traceResearchRun(id, config.topic, async () => {
+      const agentConfig: AgentConfig = {
+        llmApiKey: config.llmApiKey,
+        llmProvider: config.llmProvider,
+        researchId: id,
+      };
+
+      const backend = new FilesystemBackend({
+        rootDir: path.join(process.cwd(), "data", `research-${id}`),
+      });
+
       // — Phase 1: Plan —
       const searchTool = createBochaSearchTool(config.bochaApiKey);
       const planAgent = createDeepAgent({
+        model: resolveModel(agentConfig),
         tools: [searchTool],
+        backend,
         systemPrompt: `你是一个调研规划专家。给定一个调研主题，你需要：
 1. 拆解主题为 3-6 个独立的子研究方向
 2. 为每个子方向创建一个 Todo 项
@@ -143,6 +159,8 @@ export async function runResearch(
       await emit({ type: "drafting" });
 
       const draftAgent = createDeepAgent({
+        model: resolveModel(agentConfig),
+        backend,
         systemPrompt: `你是一个报告撰写专家。根据调研发现和分析结果，撰写一份结构清晰、内容扎实的调研报告。
 
 ## 报告结构
@@ -198,6 +216,8 @@ ${contextText}
       const reviewContent = await readFile(id, "review_notes.md");
 
       const finalAgent = createDeepAgent({
+        model: resolveModel(agentConfig),
+        backend,
         systemPrompt: `你是一个报告定稿专家。根据编辑的审阅意见，对报告草稿进行修订。
 
 ## 规则
@@ -229,6 +249,7 @@ ${reviewContent}
         type: "complete",
         data: { reportUrl: `/api/report/${id}` },
       });
+      }); // end traceResearchRun
     } catch (error) {
       await emit({
         type: "error",
