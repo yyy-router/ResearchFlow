@@ -1,6 +1,10 @@
-import { createDeepAgent } from "deepagents";
+import { createDeepAgent, FilesystemBackend } from "deepagents";
 import { quickjsExecTool } from "./tools/quickjs-exec";
 import type { AgentConfig } from "@/lib/types";
+import { resolveModel } from "@/lib/llm";
+import path from "node:path";
+
+const DATA_DIR = path.join(process.cwd(), "data");
 
 export async function runAnalyst(
   analysisTask: string,
@@ -8,7 +12,11 @@ export async function runAnalyst(
   config: AgentConfig
 ): Promise<string> {
   const agent = createDeepAgent({
+    model: resolveModel(config),
     tools: [quickjsExecTool],
+    backend: new FilesystemBackend({
+      rootDir: path.join(DATA_DIR, `research-${config.researchId}`),
+    }),
     systemPrompt: `你是一个数据分析师。当调研涉及数字对比、排名、增长率等计算时，你来完成数值分析。
 
 ## 工作流程

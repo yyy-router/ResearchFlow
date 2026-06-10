@@ -1,6 +1,10 @@
-import { createDeepAgent } from "deepagents";
+import { createDeepAgent, FilesystemBackend } from "deepagents";
 import { createBochaSearchTool } from "./tools/bocha-search";
 import type { AgentConfig } from "@/lib/types";
+import { resolveModel } from "@/lib/llm";
+import path from "node:path";
+
+const DATA_DIR = path.join(process.cwd(), "data");
 
 export async function runResearcher(
   subtopic: string,
@@ -9,7 +13,11 @@ export async function runResearcher(
   const searchTool = createBochaSearchTool(config.bochaApiKey);
 
   const agent = createDeepAgent({
+    model: resolveModel(config),
     tools: [searchTool],
+    backend: new FilesystemBackend({
+      rootDir: path.join(DATA_DIR, `research-${config.researchId}`),
+    }),
     systemPrompt: `你是一个专注的调研员。你的任务是深入研究一个子主题，通过联网搜索收集资料。
 
 ## 工作流程

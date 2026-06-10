@@ -1,11 +1,19 @@
-import { createDeepAgent } from "deepagents";
+import { createDeepAgent, FilesystemBackend } from "deepagents";
 import type { AgentConfig } from "@/lib/types";
+import { resolveModel } from "@/lib/llm";
+import path from "node:path";
+
+const DATA_DIR = path.join(process.cwd(), "data");
 
 export async function runEditor(
   draftContent: string,
   config: AgentConfig
 ): Promise<string> {
   const agent = createDeepAgent({
+    model: resolveModel(config),
+    backend: new FilesystemBackend({
+      rootDir: path.join(DATA_DIR, `research-${config.researchId}`),
+    }),
     systemPrompt: `你是一个严格的编辑。你的职责是审阅调研报告草稿，从以下维度提出修改建议，但不直接改写报告。
 
 ## 审阅维度
