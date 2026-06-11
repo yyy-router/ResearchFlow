@@ -102,13 +102,11 @@ async function main() {
   );
   try {
     const report = await fs.readFile(reportPath, "utf-8");
-    const outputPath = path.join(process.cwd(), `report-${id.slice(0, 8)}.md`);
-    await fs.writeFile(outputPath, report, "utf-8");
-    console.log(`报告已保存: ${outputPath}`);
+    console.log(`报告位置: ${reportPath}`);
     console.log(`\n--- 报告预览 (前 500 字符) ---\n`);
     console.log(report.slice(0, 500));
   } catch {
-    console.error("错误: 无法读取 final_report.md");
+    console.error(`错误: 无法读取 ${reportPath}`);
   }
 
   // — 错误汇总 —
