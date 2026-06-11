@@ -78,12 +78,25 @@ vi.mock("../tools/bocha-search", () => ({
   createBochaSearchTool: vi.fn(() => ({ name: "bocha_web_search" })),
 }));
 
+const mockSpan = {
+  end: vi.fn(),
+  setAttribute: vi.fn(),
+  spanContext: () => ({ spanId: "test-span", traceId: "test-trace" }),
+};
+
 vi.mock("@/lib/tracing", () => ({
   getCallbacks: vi.fn(() => []),
+  startSpan: vi.fn(() => mockSpan),
+  endSpan: vi.fn(),
 }));
 
 vi.mock("@/lib/llm", () => ({
   resolveModel: vi.fn(() => "claude-sonnet-4-5-20250929"),
+}));
+
+vi.mock("@opentelemetry/api", () => ({
+  context: { active: vi.fn(() => ({})) },
+  trace: { getTracer: vi.fn(() => ({ startSpan: vi.fn(() => mockSpan) })) },
 }));
 
 vi.mock("node:crypto", () => ({
