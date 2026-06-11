@@ -23,6 +23,11 @@ export interface TodoItem {
   status: "pending" | "in_progress" | "completed";
 }
 
+export interface SubtopicEntry {
+  slug: string;
+  title: string;
+}
+
 export interface AnalysisResult {
   title: string;
   code: string;
