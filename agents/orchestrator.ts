@@ -8,7 +8,74 @@ import { getCallbacks, withSpan } from "@/lib/tracing";
 import { createPlanAgent, createDraftAgent, createFinalizeAgent } from "@/lib/agent";
 import { randomUUID } from "node:crypto";
 
-export async function runResearch(config: ResearchConfig, signal: AbortSignal) {
+function parseSubtopicsFromPlan(planContent: string): SubtopicEntry[] {
+  const slugRegex = /^\d+\.\s+\[([a-z0-9-]+)\]\s+(.+)$/mgi;
+  const subtopics: SubtopicEntry[] = [];
+  for (const m of planContent.matchAll(slugRegex)) {
+    subtopics.push({ slug: m[1], title: m[2].trim() });
+  }
+  if (subtopics.length > 0) return subtopics;
+
+  let i = 1;
+  for (const m of planContent.matchAll(/^\d+\.\s+(.+)$/gm)) {
+    subtopics.push({ slug: `topic-${i++}`, title: m[1].replace(/\*{1,3}/g, "").trim() });
+  }
+  return subtopics;
+}
+
+export async function runResearchPlan(config: ResearchConfig, signal: AbortSignal) {
+  const id = randomUUID();
+  const { stream, emit, close } = createSSEStream(signal);
+  await createResearchDir(id);
+
+  (async () => {
+    try {
+      const agentConfig: AgentConfig = {
+        llmApiKey: config.llmApiKey,
+        llmProvider: config.llmProvider,
+        researchId: id,
+      };
+      const callbacks = getCallbacks();
+
+      const planAgent = createPlanAgent(agentConfig);
+      await planAgent.invoke(
+        {
+          messages: [{
+            role: "user",
+            content: `为调研主题制定计划，拆解为 3-6 个聚焦的子研究方向。\n\n调研主题：${config.topic}`,
+          }],
+        },
+        { callbacks, recursionLimit: 30 }
+      );
+
+      const planContent = await readFile(id, "research_plan.md");
+      const subtopics = parseSubtopicsFromPlan(planContent);
+      const todoItems: TodoItem[] = subtopics.map((s, i) => ({
+        id: `todo-${i}`,
+        title: `[${s.slug}] ${s.title}`,
+        status: "pending" as const,
+      }));
+
+      await emit({ type: "plan", data: { topic: config.topic, todoList: todoItems } });
+      await emit({ type: "complete", data: { reportUrl: `/api/report/${id}` } });
+    } catch (error) {
+      await emit({
+        type: "error",
+        data: { message: error instanceof Error ? error.message : "未知错误" },
+      });
+    } finally {
+      await close();
+    }
+  })();
+
+  return { id, stream };
+}
+
+export async function runResearch(
+  config: ResearchConfig,
+  signal: AbortSignal,
+  subtopics?: SubtopicEntry[],
+) {
   const id = randomUUID();
   const { stream, emit, close } = createSSEStream(signal);
   await createResearchDir(id);
@@ -23,41 +90,32 @@ export async function runResearch(config: ResearchConfig, signal: AbortSignal) {
       };
       const callbacks = getCallbacks();
 
-      // — Phase 1: Plan —
-      await withSpan("Phase 1: Plan", async () => {
-        const planAgent = createPlanAgent(agentConfig);
-        await planAgent.invoke(
-          {
-            messages: [
-              {
-                role: "user",
-                content: `为调研主题制定计划，拆解为 3-6 个聚焦的子研究方向。\n\n调研主题：${config.topic}`,
-              },
-            ],
-          },
-          { callbacks, recursionLimit: 30 }
-        );
-      });
+      // — Phase 1: Plan (skip if subtopics provided) —
+      let resolvedSubtopics = subtopics;
+      if (!resolvedSubtopics) {
+        await withSpan("Phase 1: Plan", async () => {
+          const planAgent = createPlanAgent(agentConfig);
+          await planAgent.invoke(
+            {
+              messages: [
+                {
+                  role: "user",
+                  content: `为调研主题制定计划，拆解为 3-6 个聚焦的子研究方向。\n\n调研主题：${config.topic}`,
+                },
+              ],
+            },
+            { callbacks, recursionLimit: 30 }
+          );
+        });
 
-      const planContent = await readFile(id, "research_plan.md");
-
-      // Parse [slug] Title format
-      const slugRegex = /^\d+\.\s+\[([a-z0-9-]+)\]\s+(.+)$/mgi;
-      const subtopics: SubtopicEntry[] = [];
-      for (const m of planContent.matchAll(slugRegex)) {
-        subtopics.push({ slug: m[1], title: m[2].trim() });
-      }
-      if (subtopics.length === 0) {
-        let i = 1;
-        for (const m of planContent.matchAll(/^\d+\.\s+(.+)$/gm)) {
-          subtopics.push({ slug: `topic-${i++}`, title: m[1].replace(/\*{1,3}/g, "").trim() });
-        }
+        const planContent = await readFile(id, "research_plan.md");
+        resolvedSubtopics = parseSubtopicsFromPlan(planContent);
       }
 
-      const todoItems: TodoItem[] = subtopics.map((s, i) => ({
+      const todoItems: TodoItem[] = resolvedSubtopics.map((s, i) => ({
         id: `todo-${i}`,
         title: `[${s.slug}] ${s.title}`,
-        status: "pending",
+        status: "pending" as const,
       }));
       await emit({ type: "plan", data: { topic: config.topic, todoList: todoItems } });
 
@@ -70,8 +128,8 @@ export async function runResearch(config: ResearchConfig, signal: AbortSignal) {
       };
       const findingFiles: string[] = [];
 
-      for (let i = 0; i < subtopics.length; i++) {
-        const { slug, title } = subtopics[i];
+      for (let i = 0; i < resolvedSubtopics.length; i++) {
+        const { slug, title } = resolvedSubtopics[i];
         const filename = `finding_${slug}.md`;
         await withSpan(`Research: ${slug}`, async () => {
           await emit({ type: "research_start", data: { subtopic: title } });
