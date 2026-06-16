@@ -1,7 +1,7 @@
 import { CallbackHandler } from "@langfuse/langchain";
 import { NodeTracerProvider, BatchSpanProcessor } from "@opentelemetry/sdk-trace-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { trace, context, Span, Context } from "@opentelemetry/api";
+import { trace, context, Context } from "@opentelemetry/api";
 
 const TRACER_NAME = "researchflow";
 let handler: CallbackHandler | null = null;
@@ -44,23 +44,16 @@ export function getCallbacks() {
 
 // ── Nested spans ──
 
-const tracer = trace.getTracer(TRACER_NAME);
+const noopTracer = { startSpan: () => ({ end: () => {} }) } as unknown as ReturnType<typeof trace.getTracer>;
+const active = configured ? trace.getTracer(TRACER_NAME) : noopTracer;
 
-/** Start root research span */
-export function startSpan(name: string): Span {
-  if (!configured) {
-    return trace.getTracer("noop").startSpan("noop");
+/** Wrap an async operation in a named span. Child spans (from CallbackHandler) automatically nest under it. */
+export async function withSpan<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  const span = active.startSpan(name);
+  const ctx = trace.setSpan(context.active(), span);
+  try {
+    return await context.with(ctx, fn);
+  } finally {
+    span.end();
   }
-  return tracer.startSpan(name);
-}
-
-/** Start child span under parent */
-export function startChildSpan(name: string, parent: Span): Span {
-  if (!configured) return startSpan(name);
-  const parentCtx = trace.setSpan(context.active(), parent);
-  return tracer.startSpan(name, undefined, parentCtx);
-}
-
-export function endSpan(span: Span) {
-  span.end();
 }
