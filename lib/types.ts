@@ -35,6 +35,13 @@ export interface AnalysisResult {
   conclusion: string;
 }
 
+export interface ResearchRecord {
+  id: string;
+  topic: string;
+  createdAt: string;
+  status: "completed" | "error";
+}
+
 export type ResearchEvent =
   | { type: "plan"; data: ResearchPlan }
   | { type: "research_start"; data: { subtopic: string } }

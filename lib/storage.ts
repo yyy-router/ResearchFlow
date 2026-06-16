@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { ResearchRecord } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 
@@ -56,4 +57,47 @@ export async function fileExists(
   } catch {
     return false;
   }
+}
+
+export async function listResearchDirs(): Promise<ResearchRecord[]> {
+  await ensureDir(DATA_DIR);
+  const entries = await fs.readdir(DATA_DIR, { withFileTypes: true });
+  const records: ResearchRecord[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith("research-")) continue;
+    const id = entry.name.slice("research-".length);
+    const dirPath = path.join(DATA_DIR, entry.name);
+
+    let topic = id;
+    let status: "completed" | "error" = "completed";
+    let createdAt = "";
+
+    try {
+      const planPath = path.join(dirPath, "research_plan.md");
+      const plan = await fs.readFile(planPath, "utf-8");
+      const match = plan.match(/^#\s+(.+)$/m);
+      if (match) topic = match[1].replace(/调研计划[：:]\s*/, "").trim();
+    } catch {
+      /* use id as topic */
+    }
+
+    try {
+      const stat = await fs.stat(dirPath);
+      createdAt = stat.birthtime.toISOString();
+    } catch {
+      createdAt = "";
+    }
+
+    try {
+      await fs.access(path.join(dirPath, "final_report.md"));
+    } catch {
+      status = "error";
+    }
+
+    records.push({ id, topic, createdAt, status });
+  }
+
+  records.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return records;
 }
