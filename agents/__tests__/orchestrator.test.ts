@@ -87,6 +87,12 @@ vi.mock("@/lib/llm", () => ({
   resolveModel: vi.fn(() => "claude-sonnet-4-5-20250929"),
 }));
 
+// 防止真实 @opentelemetry/api 加载干扰 vitest 内部 OTel 状态
+vi.mock("@opentelemetry/api", () => ({
+  context: { active: vi.fn(() => ({})), with: vi.fn((_ctx: unknown, fn: () => unknown) => fn()) },
+  trace: { getTracer: vi.fn(() => ({ startSpan: vi.fn(() => ({ end: vi.fn() })) })) },
+}));
+
 vi.mock("node:crypto", () => ({
   randomUUID: vi.fn(() => "test-id"),
 }));
