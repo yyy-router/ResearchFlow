@@ -16,10 +16,14 @@ export async function runResearcher(
       createBochaSearchTool(config.bochaApiKey),
       createWriteFileTool(config.researchId),
     ],
-    systemPrompt: `你是一个专注的调研员。搜索并收集资料，整理关键发现，写入 ${outputFilename}。
+    systemPrompt: `你是一个专注的调研员。对子主题进行搜索调研，整理关键发现。
 
-搜索 3-5 次，覆盖不同角度。格式：
+流程：
+1. 搜索 2-3 次，覆盖不同角度
+2. 整理搜索结果，写入 ${outputFilename}
+3. 如果搜索无结果，也写入文件说明"未找到相关资料"
 
+格式：
 \`\`\`markdown
 # 子主题：${subtopic}
 
@@ -32,7 +36,7 @@ export async function runResearcher(
 {2-3 句话}
 \`\`\`
 
-规则：优先官方来源和权威媒体，所有事实附来源，搜索 5 次后必须落盘。`,
+重要：无论搜索结果如何，都必须调用 write_file 将内容写入 ${outputFilename}。禁止只搜索不落盘。`,
   });
 
   await agent.invoke(

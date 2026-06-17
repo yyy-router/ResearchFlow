@@ -2,14 +2,83 @@ import { runResearcher } from "./researcher";
 import { runAnalyst } from "./analyst";
 import { runEditor } from "./editor";
 import { createSSEStream } from "@/lib/sse";
-import { createResearchDir, readFile } from "@/lib/storage";
+import { createResearchDir, readFile, writeFile, fileExists } from "@/lib/storage";
 import type { ResearchConfig, TodoItem, SubtopicEntry, AgentConfig } from "@/lib/types";
 import { getCallbacks, withSpan } from "@/lib/tracing";
 import { createPlanAgent, createDraftAgent, createFinalizeAgent } from "@/lib/agent";
 import { randomUUID } from "node:crypto";
 
-export async function runResearch(config: ResearchConfig, signal: AbortSignal) {
+function parseSubtopicsFromPlan(planContent: string): SubtopicEntry[] {
+  const slugRegex = /^\d+\.\s+\[([a-z0-9-]+)\]\s+(.+)$/mgi;
+  const subtopics: SubtopicEntry[] = [];
+  for (const m of planContent.matchAll(slugRegex)) {
+    subtopics.push({ slug: m[1], title: m[2].trim() });
+  }
+  if (subtopics.length > 0) return subtopics;
+
+  let i = 1;
+  for (const m of planContent.matchAll(/^\d+\.\s+(.+)$/gm)) {
+    subtopics.push({ slug: `topic-${i++}`, title: m[1].replace(/\*{1,3}/g, "").trim() });
+  }
+  return subtopics;
+}
+
+export async function runResearchPlan(config: ResearchConfig, signal: AbortSignal) {
   const id = randomUUID();
+  const { stream, emit, close } = createSSEStream(signal);
+  await createResearchDir(id);
+
+  (async () => {
+    try {
+      const agentConfig: AgentConfig = {
+        llmApiKey: config.llmApiKey,
+        llmProvider: config.llmProvider,
+        researchId: id,
+        llmBaseUrl: config.llmBaseUrl,
+        model: config.model,
+      };
+      const callbacks = getCallbacks();
+
+      const planAgent = createPlanAgent(agentConfig);
+      await planAgent.invoke(
+        {
+          messages: [{
+            role: "user",
+            content: `为调研主题制定计划，拆解为 3-6 个聚焦的子研究方向。\n\n调研主题：${config.topic}`,
+          }],
+        },
+        { callbacks, recursionLimit: 30 }
+      );
+
+      const planContent = await readFile(id, "research_plan.md");
+      const subtopics = parseSubtopicsFromPlan(planContent);
+      const todoItems: TodoItem[] = subtopics.map((s, i) => ({
+        id: `todo-${i}`,
+        title: `[${s.slug}] ${s.title}`,
+        status: "pending" as const,
+      }));
+
+      await emit({ type: "plan", data: { topic: config.topic, todoList: todoItems, researchId: id } });
+    } catch (error) {
+      await emit({
+        type: "error",
+        data: { message: error instanceof Error ? error.message : "未知错误" },
+      });
+    } finally {
+      await close();
+    }
+  })();
+
+  return { id, stream };
+}
+
+export async function runResearch(
+  config: ResearchConfig,
+  signal: AbortSignal,
+  subtopics?: SubtopicEntry[],
+  researchId?: string,
+) {
+  const id = researchId || randomUUID();
   const { stream, emit, close } = createSSEStream(signal);
   await createResearchDir(id);
 
@@ -20,44 +89,37 @@ export async function runResearch(config: ResearchConfig, signal: AbortSignal) {
         llmApiKey: config.llmApiKey,
         llmProvider: config.llmProvider,
         researchId: id,
+        llmBaseUrl: config.llmBaseUrl,
+        model: config.model,
       };
       const callbacks = getCallbacks();
 
-      // — Phase 1: Plan —
-      await withSpan("Phase 1: Plan", async () => {
-        const planAgent = createPlanAgent(agentConfig);
-        await planAgent.invoke(
-          {
-            messages: [
-              {
-                role: "user",
-                content: `为调研主题制定计划，拆解为 3-6 个聚焦的子研究方向。\n\n调研主题：${config.topic}`,
-              },
-            ],
-          },
-          { callbacks, recursionLimit: 30 }
-        );
-      });
+      // — Phase 1: Plan (skip if subtopics provided) —
+      let resolvedSubtopics = subtopics;
+      if (!resolvedSubtopics) {
+        await withSpan("Phase 1: Plan", async () => {
+          const planAgent = createPlanAgent(agentConfig);
+          await planAgent.invoke(
+            {
+              messages: [
+                {
+                  role: "user",
+                  content: `为调研主题制定计划，拆解为 3-6 个聚焦的子研究方向。\n\n调研主题：${config.topic}`,
+                },
+              ],
+            },
+            { callbacks, recursionLimit: 30 }
+          );
+        });
 
-      const planContent = await readFile(id, "research_plan.md");
-
-      // Parse [slug] Title format
-      const slugRegex = /^\d+\.\s+\[([a-z0-9-]+)\]\s+(.+)$/mgi;
-      const subtopics: SubtopicEntry[] = [];
-      for (const m of planContent.matchAll(slugRegex)) {
-        subtopics.push({ slug: m[1], title: m[2].trim() });
-      }
-      if (subtopics.length === 0) {
-        let i = 1;
-        for (const m of planContent.matchAll(/^\d+\.\s+(.+)$/gm)) {
-          subtopics.push({ slug: `topic-${i++}`, title: m[1].replace(/\*{1,3}/g, "").trim() });
-        }
+        const planContent = await readFile(id, "research_plan.md");
+        resolvedSubtopics = parseSubtopicsFromPlan(planContent);
       }
 
-      const todoItems: TodoItem[] = subtopics.map((s, i) => ({
+      const todoItems: TodoItem[] = resolvedSubtopics.map((s, i) => ({
         id: `todo-${i}`,
         title: `[${s.slug}] ${s.title}`,
-        status: "pending",
+        status: "pending" as const,
       }));
       await emit({ type: "plan", data: { topic: config.topic, todoList: todoItems } });
 
@@ -67,16 +129,25 @@ export async function runResearch(config: ResearchConfig, signal: AbortSignal) {
         llmApiKey: config.llmApiKey,
         llmProvider: config.llmProvider,
         researchId: id,
+        llmBaseUrl: config.llmBaseUrl,
+        model: config.model,
       };
       const findingFiles: string[] = [];
 
-      for (let i = 0; i < subtopics.length; i++) {
-        const { slug, title } = subtopics[i];
+      for (let i = 0; i < resolvedSubtopics.length; i++) {
+        const { slug, title } = resolvedSubtopics[i];
         const filename = `finding_${slug}.md`;
         await withSpan(`Research: ${slug}`, async () => {
+          console.log(`[Research] 开始调研子方向: ${title} → ${filename}`);
           await emit({ type: "research_start", data: { subtopic: title } });
           await emit({ type: "research_progress", data: { subtopic: title, snippet: "正在搜索..." } });
           await runResearcher(title, filename, researcherConfig);
+          if (await fileExists(id, filename)) {
+            console.log(`[Research] 完成: ${filename} 已写入`);
+          } else {
+            console.log(`[Research] 警告: ${filename} 未生成，写入占位文件`);
+            await writeFile(id, filename, `# 子主题：${title}\n\n未能获取到相关资料，Agent 未调用 write_file。\n`);
+          }
           findingFiles.push(filename);
           todoItems[i].status = "completed";
           await emit({ type: "research_done", data: { subtopic: title } });
@@ -97,6 +168,8 @@ export async function runResearch(config: ResearchConfig, signal: AbortSignal) {
             llmApiKey: config.llmApiKey,
             llmProvider: config.llmProvider,
             researchId: id,
+            llmBaseUrl: config.llmBaseUrl,
+            model: config.model,
           });
         });
         const analysisContent = await readFile(id, "analysis_1.md");
@@ -131,6 +204,8 @@ export async function runResearch(config: ResearchConfig, signal: AbortSignal) {
           llmApiKey: config.llmApiKey,
           llmProvider: config.llmProvider,
           researchId: id,
+          llmBaseUrl: config.llmBaseUrl,
+          model: config.model,
         });
       });
 

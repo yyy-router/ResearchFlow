@@ -1,20 +1,24 @@
 export interface AgentConfig {
   llmApiKey: string;
-  llmProvider: "openai" | "anthropic" | "deepseek";
+  llmProvider: "openai" | "anthropic";
   researchId: string;
   model?: string;
+  llmBaseUrl?: string;
 }
 
 export interface ResearchConfig {
   llmApiKey: string;
-  llmProvider: "openai" | "anthropic" | "deepseek";
+  llmProvider: "openai" | "anthropic";
   bochaApiKey: string;
   topic: string;
+  llmBaseUrl?: string;
+  model?: string;
 }
 
 export interface ResearchPlan {
   topic: string;
   todoList: TodoItem[];
+  researchId: string;
 }
 
 export interface TodoItem {
@@ -33,6 +37,13 @@ export interface AnalysisResult {
   code: string;
   output: string;
   conclusion: string;
+}
+
+export interface ResearchRecord {
+  id: string;
+  topic: string;
+  createdAt: string;
+  status: "completed" | "error";
 }
 
 export type ResearchEvent =
