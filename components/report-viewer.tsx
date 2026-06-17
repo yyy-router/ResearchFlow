@@ -43,7 +43,7 @@ export function ReportViewer({ content }: ReportViewerProps) {
             <td className="border border-border px-3 py-2">{children}</td>
           ),
         }}
-      />
+      >{content}</ReactMarkdown>
     </article>
   );
 }

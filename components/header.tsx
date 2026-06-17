@@ -21,12 +21,10 @@ export function Header() {
           </Link>
 
           <nav className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/history">
-                <History className="w-4 h-4" />
-                <span className="ml-1.5 hidden sm:inline">历史</span>
-              </Link>
-            </Button>
+            <Link href="/history" className="inline-flex items-center gap-1.5 h-7 px-2.5 text-[0.8rem] rounded-md hover:bg-muted hover:text-foreground transition-colors">
+              <History className="w-4 h-4" />
+              <span className="hidden sm:inline">历史</span>
+            </Link>
             <Button
               variant="ghost"
               size="sm"
