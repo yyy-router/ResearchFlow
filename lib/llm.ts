@@ -2,24 +2,30 @@ import { ChatOpenAI } from "@langchain/openai";
 import { ChatAnthropic } from "@langchain/anthropic";
 import type { AgentConfig } from "./types";
 
-export function resolveModel(config: AgentConfig) {
-  const baseURL = process.env.LLM_BASE_URL;
+const DEFAULT_MODELS: Record<string, string> = {
+  openai: "gpt-5.5",
+  anthropic: "claude-sonnet-4-6",
+};
 
-  // OpenAI-compatible providers (openai, deepseek, third-party proxies)
-  if (config.llmProvider === "openai" || config.llmProvider === "deepseek") {
+export function resolveModel(config: AgentConfig) {
+  const baseURL = config.llmBaseUrl || process.env.LLM_BASE_URL;
+  const model = config.model || DEFAULT_MODELS[config.llmProvider] || "gpt-5.5";
+
+  // OpenAI-compatible (covers OpenAI, DeepSeek /v1, and most third-party proxies)
+  if (config.llmProvider === "openai") {
     return new ChatOpenAI({
       apiKey: config.llmApiKey,
-      model: config.model ?? "gpt-4o",
+      model,
       ...(baseURL
         ? { configuration: { baseURL } }
         : {}),
     });
   }
 
-  // Anthropic (supports DeepSeek /anthropic endpoint via LLM_BASE_URL)
+  // Anthropic
   return new ChatAnthropic({
     apiKey: config.llmApiKey,
-    model: config.model ?? "claude-sonnet-4-5-20250929",
+    model,
     ...(baseURL
       ? { clientOptions: { baseURL } }
       : {}),

@@ -1,20 +1,24 @@
 export interface AgentConfig {
   llmApiKey: string;
-  llmProvider: "openai" | "anthropic" | "deepseek";
+  llmProvider: "openai" | "anthropic";
   researchId: string;
   model?: string;
+  llmBaseUrl?: string;
 }
 
 export interface ResearchConfig {
   llmApiKey: string;
-  llmProvider: "openai" | "anthropic" | "deepseek";
+  llmProvider: "openai" | "anthropic";
   bochaApiKey: string;
   topic: string;
+  llmBaseUrl?: string;
+  model?: string;
 }
 
 export interface ResearchPlan {
   topic: string;
   todoList: TodoItem[];
+  researchId: string;
 }
 
 export interface TodoItem {
