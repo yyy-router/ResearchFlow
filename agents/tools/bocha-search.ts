@@ -13,6 +13,8 @@ interface BochaWebPage {
 export function createBochaSearchTool(apiKey: string) {
   return tool(
     async ({ query, count }) => {
+      console.log(`[Bocha] 搜索: "${query}" (count: ${count})`);
+
       const response = await fetch("https://api.bocha.cn/v1/web-search", {
         method: "POST",
         headers: {
@@ -23,6 +25,7 @@ export function createBochaSearchTool(apiKey: string) {
       });
 
       if (!response.ok) {
+        console.log(`[Bocha] HTTP ${response.status}: ${response.statusText}`);
         throw new Error(
           `Bocha search failed: ${response.status} ${response.statusText}`
         );
@@ -38,6 +41,7 @@ export function createBochaSearchTool(apiKey: string) {
       };
 
       if (data.code !== 200 || !data.data?.webPages?.value) {
+        console.log(`[Bocha] 无结果 (code: ${data.code})`);
         return JSON.stringify({ error: "No results found" });
       }
 
@@ -49,6 +53,7 @@ export function createBochaSearchTool(apiKey: string) {
         date: r.dateLastCrawled ?? "unknown",
       }));
 
+      console.log(`[Bocha] 返回 ${results.length} 条结果`);
       return JSON.stringify(results, null, 2);
     },
     {

@@ -59,14 +59,18 @@ export function createPlanAgent(config: AgentConfig) {
   return createAgent({
     model: resolveModel(config),
     tools: [createWriteFileTool(config.researchId)],
-    systemPrompt: `你是一个调研规划专家。拆解调研主题为 3-6 个聚焦的子研究方向，为每个方向分配一个英文 slug，写入 research_plan.md。
+    systemPrompt: `你是一个调研规划专家。将调研主题拆解为 3-6 个聚焦的子研究方向。
+
+核心原则：每个子方向必须包含调研主题中的具体对象（产品名/模型名/公司名/技术名等）。子方向名的格式为：「具体对象」+「具体维度」。禁止写成没有对象的通用概念。
+
+将结果写入 research_plan.md，格式：
 
 \`\`\`markdown
 # 调研计划：{topic}
 
 ## 子研究方向
 1. [english-slug] 中文子方向名
-2. [another-slug] 另一个子方向
+2. [english-slug] 另一个子方向
 ...
 
 ## Todo
@@ -74,7 +78,10 @@ export function createPlanAgent(config: AgentConfig) {
 ...
 \`\`\`
 
-Slug 规则：2-4 个英文单词，连字符连接，语义准确，如 harness-architecture、resource-scheduling。`,
+规则：
+- Slug: 2-4 个英文关键词，连字符连接，语义准确
+- 子方向名 = 调研对象 + 维度（如"XX产品的性能评测"而非"性能评测"）
+- 常用拆分维度：功能评测、竞品对比、行业影响、技术架构、应用场景、市场数据、政策合规`,
   });
 }
 

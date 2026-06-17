@@ -2,7 +2,7 @@ import { runResearcher } from "./researcher";
 import { runAnalyst } from "./analyst";
 import { runEditor } from "./editor";
 import { createSSEStream } from "@/lib/sse";
-import { createResearchDir, readFile } from "@/lib/storage";
+import { createResearchDir, readFile, writeFile, fileExists } from "@/lib/storage";
 import type { ResearchConfig, TodoItem, SubtopicEntry, AgentConfig } from "@/lib/types";
 import { getCallbacks, withSpan } from "@/lib/tracing";
 import { createPlanAgent, createDraftAgent, createFinalizeAgent } from "@/lib/agent";
@@ -34,6 +34,8 @@ export async function runResearchPlan(config: ResearchConfig, signal: AbortSigna
         llmApiKey: config.llmApiKey,
         llmProvider: config.llmProvider,
         researchId: id,
+        llmBaseUrl: config.llmBaseUrl,
+        model: config.model,
       };
       const callbacks = getCallbacks();
 
@@ -56,8 +58,7 @@ export async function runResearchPlan(config: ResearchConfig, signal: AbortSigna
         status: "pending" as const,
       }));
 
-      await emit({ type: "plan", data: { topic: config.topic, todoList: todoItems } });
-      await emit({ type: "complete", data: { reportUrl: `/api/report/${id}` } });
+      await emit({ type: "plan", data: { topic: config.topic, todoList: todoItems, researchId: id } });
     } catch (error) {
       await emit({
         type: "error",
@@ -75,8 +76,9 @@ export async function runResearch(
   config: ResearchConfig,
   signal: AbortSignal,
   subtopics?: SubtopicEntry[],
+  researchId?: string,
 ) {
-  const id = randomUUID();
+  const id = researchId || randomUUID();
   const { stream, emit, close } = createSSEStream(signal);
   await createResearchDir(id);
 
@@ -87,6 +89,8 @@ export async function runResearch(
         llmApiKey: config.llmApiKey,
         llmProvider: config.llmProvider,
         researchId: id,
+        llmBaseUrl: config.llmBaseUrl,
+        model: config.model,
       };
       const callbacks = getCallbacks();
 
@@ -125,6 +129,8 @@ export async function runResearch(
         llmApiKey: config.llmApiKey,
         llmProvider: config.llmProvider,
         researchId: id,
+        llmBaseUrl: config.llmBaseUrl,
+        model: config.model,
       };
       const findingFiles: string[] = [];
 
@@ -132,9 +138,16 @@ export async function runResearch(
         const { slug, title } = resolvedSubtopics[i];
         const filename = `finding_${slug}.md`;
         await withSpan(`Research: ${slug}`, async () => {
+          console.log(`[Research] 开始调研子方向: ${title} → ${filename}`);
           await emit({ type: "research_start", data: { subtopic: title } });
           await emit({ type: "research_progress", data: { subtopic: title, snippet: "正在搜索..." } });
           await runResearcher(title, filename, researcherConfig);
+          if (await fileExists(id, filename)) {
+            console.log(`[Research] 完成: ${filename} 已写入`);
+          } else {
+            console.log(`[Research] 警告: ${filename} 未生成，写入占位文件`);
+            await writeFile(id, filename, `# 子主题：${title}\n\n未能获取到相关资料，Agent 未调用 write_file。\n`);
+          }
           findingFiles.push(filename);
           todoItems[i].status = "completed";
           await emit({ type: "research_done", data: { subtopic: title } });
@@ -155,6 +168,8 @@ export async function runResearch(
             llmApiKey: config.llmApiKey,
             llmProvider: config.llmProvider,
             researchId: id,
+            llmBaseUrl: config.llmBaseUrl,
+            model: config.model,
           });
         });
         const analysisContent = await readFile(id, "analysis_1.md");
@@ -189,6 +204,8 @@ export async function runResearch(
           llmApiKey: config.llmApiKey,
           llmProvider: config.llmProvider,
           researchId: id,
+          llmBaseUrl: config.llmBaseUrl,
+          model: config.model,
         });
       });
 
