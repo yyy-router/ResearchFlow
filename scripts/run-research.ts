@@ -6,14 +6,13 @@ import path from "node:path";
 
 // — 命令行参数 —
 const topic = process.argv[2];
-const provider = (process.argv[3] ?? "deepseek") as
+const provider = (process.argv[3] ?? "openai") as
   | "openai"
-  | "anthropic"
-  | "deepseek";
+  | "anthropic";
 
 if (!topic) {
   console.error("用法: npx tsx scripts/run-research.ts <调研主题> [provider]");
-  console.error("示例: npx tsx scripts/run-research.ts '2024年AI行业融资趋势' deepseek");
+  console.error("示例: npx tsx scripts/run-research.ts '2024年AI行业融资趋势' openai");
   console.error("");
   console.error(".env 中需要配置:");
   console.error("  LLM_API_KEY  - LLM API Key");
@@ -43,7 +42,6 @@ if (!bochaApiKey) {
 const PROVIDER_ENV_MAP: Record<string, string> = {
   anthropic: "ANTHROPIC_API_KEY",
   openai: "OPENAI_API_KEY",
-  deepseek: "DEEPSEEK_API_KEY",
 };
 process.env[PROVIDER_ENV_MAP[provider]] = llmApiKey;
 
