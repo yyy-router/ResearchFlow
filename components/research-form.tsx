@@ -7,19 +7,22 @@ import { Input } from "@/components/ui/input";
 import { useConfig } from "./config-provider";
 
 interface ResearchFormProps {
-  disabled?: boolean;
+  loading?: boolean;
   onSubmit: (topic: string) => void;
 }
 
-export function ResearchForm({ disabled, onSubmit }: ResearchFormProps) {
+export function ResearchForm({ loading, onSubmit }: ResearchFormProps) {
   const [topic, setTopic] = useState("");
-  const { isConfigured } = useConfig();
+  const { isConfigured, hydrated } = useConfig();
 
-  const cantSubmit = disabled || !topic.trim() || !isConfigured;
+  // During hydration, show inputs as disabled without the "not configured" hint
+  // to match the SSR output (empty config). After hydration, show real state.
+  const showNotConfigured = hydrated && !isConfigured;
+  const cantSubmit = loading || !topic.trim() || !isConfigured;
 
   return (
     <div className="space-y-4">
-      {!isConfigured && (
+      {showNotConfigured && (
         <p className="text-sm text-muted-foreground text-center">
           请先在右上角"配置"中设置 API Key
         </p>
@@ -29,7 +32,7 @@ export function ResearchForm({ disabled, onSubmit }: ResearchFormProps) {
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
           placeholder="输入调研主题，如：2024 年 AI 行业融资趋势"
-          disabled={disabled}
+          disabled={loading || !isConfigured}
           className="flex-1 h-12 text-base"
           onKeyDown={(e) => {
             if (e.key === "Enter" && !cantSubmit) onSubmit(topic.trim());
@@ -40,7 +43,7 @@ export function ResearchForm({ disabled, onSubmit }: ResearchFormProps) {
           disabled={cantSubmit}
           className="h-12 px-6 shrink-0"
         >
-          {disabled ? (
+          {loading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <>

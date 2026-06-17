@@ -1,41 +1,51 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useEffect } from "react";
 
 interface ConfigState {
   llmApiKey: string;
-  llmProvider: "openai" | "anthropic" | "deepseek";
+  llmProvider: "openai" | "anthropic";
+  llmBaseUrl: string;
+  model: string;
   bochaApiKey: string;
 }
 
 interface ConfigContextValue extends ConfigState {
   isConfigured: boolean;
+  hydrated: boolean;
   updateConfig: (config: Partial<ConfigState>) => void;
   clearConfig: () => void;
 }
 
 const STORAGE_KEY = "researchflow-config";
+const EMPTY: ConfigState = {
+  llmApiKey: "", llmProvider: "openai", bochaApiKey: "", llmBaseUrl: "", model: "",
+};
 
-function loadConfig(): ConfigState {
-  if (typeof window === "undefined") {
-    return { llmApiKey: "", llmProvider: "deepseek", bochaApiKey: "" };
-  }
+function readStorage(): ConfigState | null {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch { /* ignore */ }
-  return { llmApiKey: "", llmProvider: "deepseek", bochaApiKey: "" };
+  return null;
 }
 
 function saveConfig(config: ConfigState) {
-  if (typeof window === "undefined") return;
   sessionStorage.setItem(STORAGE_KEY, JSON.stringify(config));
 }
 
 const ConfigContext = createContext<ConfigContextValue | null>(null);
 
 export function ConfigProvider({ children }: { children: React.ReactNode }) {
-  const [config, setConfig] = useState<ConfigState>(loadConfig);
+  // Always start empty to match SSR output — hydrate from storage after mount
+  const [config, setConfig] = useState<ConfigState>(EMPTY);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    const stored = readStorage();
+    if (stored) setConfig({ ...EMPTY, ...stored });
+    setHydrated(true);
+  }, []);
 
   const updateConfig = useCallback((partial: Partial<ConfigState>) => {
     setConfig((prev) => {
@@ -46,15 +56,14 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const clearConfig = useCallback(() => {
-    const empty = { llmApiKey: "", llmProvider: "deepseek" as const, bochaApiKey: "" };
-    setConfig(empty);
-    saveConfig(empty);
+    setConfig(EMPTY);
+    saveConfig(EMPTY);
   }, []);
 
   const isConfigured = !!(config.llmApiKey && config.bochaApiKey);
 
   return (
-    <ConfigContext.Provider value={{ ...config, isConfigured, updateConfig, clearConfig }}>
+    <ConfigContext.Provider value={{ ...config, isConfigured, hydrated, updateConfig, clearConfig }}>
       {children}
     </ConfigContext.Provider>
   );

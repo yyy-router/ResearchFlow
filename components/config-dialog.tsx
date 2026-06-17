@@ -11,14 +11,14 @@ interface ConfigDialogProps {
 }
 
 export function ConfigDialog({ open, onOpenChange }: ConfigDialogProps) {
-  const { llmApiKey, llmProvider, bochaApiKey, updateConfig, clearConfig } = useConfig();
+  const { llmApiKey, llmProvider, llmBaseUrl, model, bochaApiKey, updateConfig, clearConfig } = useConfig();
 
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40" onClick={() => onOpenChange(false)} />
-      <div className="relative w-full max-w-md mx-4 bg-background rounded-lg shadow-lg border p-6">
+      <div className="relative w-full max-w-md mx-4 bg-background rounded-lg shadow-lg border p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center gap-2 mb-6">
           <Settings className="w-5 h-5" />
           <h2 className="text-lg font-semibold font-serif">API 配置</h2>
@@ -26,25 +26,44 @@ export function ConfigDialog({ open, onOpenChange }: ConfigDialogProps) {
 
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium mb-1.5 block">LLM Provider</label>
+            <label className="text-sm font-medium mb-1.5 block">API 协议</label>
             <select
               value={llmProvider}
               onChange={(e) => updateConfig({ llmProvider: e.target.value as typeof llmProvider })}
               className="w-full h-9 px-3 rounded-md border bg-background text-sm"
             >
-              <option value="deepseek">DeepSeek</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI 协议</option>
+              <option value="anthropic">Anthropic 协议</option>
             </select>
+            <p className="text-xs text-muted-foreground mt-1">大多数 API 服务商兼容 OpenAI 协议；Anthropic 官方及少数服务商使用 Anthropic 协议</p>
           </div>
 
           <div>
-            <label className="text-sm font-medium mb-1.5 block">LLM API Key</label>
+            <label className="text-sm font-medium mb-1.5 block">API Key</label>
             <Input
               type="password"
               value={llmApiKey}
               onChange={(e) => updateConfig({ llmApiKey: e.target.value })}
               placeholder="sk-..."
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium mb-1.5 block">API 地址</label>
+            <Input
+              value={llmBaseUrl}
+              onChange={(e) => updateConfig({ llmBaseUrl: e.target.value })}
+              placeholder="参考 API 服务商文档填写"
+            />
+            <p className="text-xs text-muted-foreground mt-1">照抄服务商文档中的 Base URL 即可，无需追加接口路径</p>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium mb-1.5 block">模型名称</label>
+            <Input
+              value={model}
+              onChange={(e) => updateConfig({ model: e.target.value })}
+              placeholder={llmProvider === "openai" ? "gpt-5.5" : "claude-sonnet-4-6"}
             />
           </div>
 

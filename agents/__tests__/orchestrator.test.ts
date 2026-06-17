@@ -102,7 +102,7 @@ import { readFile, writeFile } from "@/lib/storage";
 
 const baseConfig = {
   llmApiKey: "sk-test",
-  llmProvider: "deepseek" as const,
+  llmProvider: "openai" as const,
   bochaApiKey: "bocha-test",
   topic: "2024年AI行业融资趋势",
 };
