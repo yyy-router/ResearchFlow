@@ -195,7 +195,8 @@ describe("runResearch", () => {
     expect(mockRunResearcher).toHaveBeenCalledWith(
       "方向A",
       "finding_dir-a.md",
-      expect.objectContaining({ bochaApiKey: "bocha-test" })
+      expect.objectContaining({ bochaApiKey: "bocha-test" }),
+      expect.any(Function)
     );
   });
 
@@ -315,7 +316,7 @@ describe("runResearch", () => {
     expect(mockCreatePlanAgent).not.toHaveBeenCalled();
     expect(mockRunResearcher).toHaveBeenCalledTimes(2);
     expect(mockRunResearcher).toHaveBeenCalledWith(
-      "自定义A", "finding_custom-a.md", expect.anything()
+      "自定义A", "finding_custom-a.md", expect.anything(), expect.any(Function)
     );
   });
 });

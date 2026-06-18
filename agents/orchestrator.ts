@@ -138,8 +138,11 @@ export async function runResearch(
           await withSpan(`Research: ${slug}`, async () => {
             console.log(`[Research] 开始调研子方向: ${title} → ${filename}`);
             await emit({ type: "research_start", data: { subtopic: title } });
-            await emit({ type: "research_progress", data: { subtopic: title, snippet: "正在搜索..." } });
-            await runResearcher(title, filename, researcherConfig);
+            const onSearchResults = (query: string, results: { title: string; snippet: string }[]) => {
+              const preview = results.slice(0, 3).map((r) => r.title).join("；");
+              emit({ type: "research_progress", data: { subtopic: title, snippet: `搜索"${query}" 返回 ${results.length} 条: ${preview}` } });
+            };
+            await runResearcher(title, filename, researcherConfig, onSearchResults);
             if (await fileExists(id, filename)) {
               console.log(`[Research] 完成: ${filename} 已写入`);
             } else {
