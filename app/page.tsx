@@ -9,6 +9,7 @@ import { PlanReview } from "@/components/plan-review";
 import { ProgressPanel } from "@/components/progress-panel";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
+import { PlanLoading } from "@/components/plan-loading";
 import { Button } from "@/components/ui/button";
 import { parseSSELine } from "@/lib/api-helpers";
 import type { ResearchEvent, TodoItem } from "@/lib/types";
@@ -25,6 +26,8 @@ export default function Home() {
   const [reportId, setReportId] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [currentPhase, setCurrentPhase] = useState<string | null>(null);
+  const [researchProgress, setResearchProgress] = useState<Record<string, string>>({});
+  const [phaseStatus, setPhaseStatus] = useState<{ phase: string; message: string; detail?: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const isRunPhaseRef = useRef(false);
   const researchIdRef = useRef<string>("");
@@ -66,17 +69,29 @@ export default function Home() {
           case "research_start":
             setCurrentPhase("research");
             break;
+          case "research_progress":
+            setResearchProgress((prev) => ({ ...prev, [event.data.subtopic]: event.data.snippet }));
+            break;
           case "analysis_start":
             setCurrentPhase("analysis");
+            setPhaseStatus({ phase: "analysis", message: "正在分析调研数据..." });
+            break;
+          case "analysis_done":
+            if (event.type === "analysis_done") {
+              setPhaseStatus({ phase: "analysis", message: "数据分析完成", detail: event.data.conclusion });
+            }
             break;
           case "drafting":
             setCurrentPhase("drafting");
+            setPhaseStatus({ phase: "drafting", message: "正在撰写报告草稿，整合调研发现与分析结果..." });
             break;
           case "reviewing":
             setCurrentPhase("reviewing");
+            setPhaseStatus({ phase: "reviewing", message: "正在审阅报告草稿，检查准确性与完整性..." });
             break;
           case "finalizing":
             setCurrentPhase("finalizing");
+            setPhaseStatus({ phase: "finalizing", message: "正在根据审阅意见修订定稿..." });
             break;
           case "complete":
             setCurrentPhase(null);
@@ -96,6 +111,7 @@ export default function Home() {
 
     setError("");
     setEvents([]);
+    setResearchProgress({});
     setTopic(t);
     setStage("running");
     isRunPhaseRef.current = false;
@@ -131,6 +147,8 @@ export default function Home() {
     setError("");
     setEvents([]);
     setCurrentPhase(null);
+    setResearchProgress({});
+    setPhaseStatus(null);
     isRunPhaseRef.current = true;
 
     const subtopics = selected.map((item) => {
@@ -172,10 +190,16 @@ export default function Home() {
   const handleCancel = useCallback(() => {
     abortRef.current?.abort();
     isRunPhaseRef.current = false;
+    // Clean up server-side temporary directory
+    if (researchIdRef.current) {
+      fetch(`/api/research/${researchIdRef.current}`, { method: "DELETE" }).catch(() => {});
+      researchIdRef.current = "";
+    }
     setStage("input");
     setEvents([]);
     setPlanItems([]);
     setError("");
+    setResearchProgress({});
     setCurrentPhase(null);
   }, []);
 
@@ -188,33 +212,46 @@ export default function Home() {
         </p>
       </div>
 
-      {stage === "input" && (
-        <ResearchForm loading={false} onSubmit={handleStart} />
-      )}
+      <div className="transition-all duration-300">
+        {stage === "input" && (
+          <ResearchForm loading={false} onSubmit={handleStart} />
+        )}
+      </div>
 
       {error && (
         <ErrorBanner message={error} onRetry={() => handleStart(topic)} onDismiss={() => setError("")} />
       )}
 
-      {stage === "plan" && planItems.length > 0 && (
-        <PlanReview
-          topic={topic}
-          items={planItems}
-          onConfirm={handleConfirmPlan}
-          onCancel={handleCancel}
-        />
+      {/* Plan loading — waiting for first plan event */}
+      {stage === "running" && planItems.length === 0 && (
+        <PlanLoading topic={topic} />
       )}
 
-      {stage === "running" && (
-        <ProgressPanel
-          events={events}
-          todoItems={planItems}
-          currentPhase={currentPhase}
-        />
+      {stage === "plan" && planItems.length > 0 && (
+        <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+          <PlanReview
+            topic={topic}
+            items={planItems}
+            onConfirm={handleConfirmPlan}
+            onCancel={handleCancel}
+          />
+        </div>
+      )}
+
+      {stage === "running" && planItems.length > 0 && (
+        <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+          <ProgressPanel
+            events={events}
+            todoItems={planItems}
+            currentPhase={currentPhase}
+            researchProgress={researchProgress}
+            phaseStatus={phaseStatus}
+          />
+        </div>
       )}
 
       {stage === "done" && reportId && (
-        <div className="text-center space-y-4 py-8">
+        <div className="animate-in fade-in zoom-in-95 duration-500 text-center space-y-4 py-8">
           <EmptyState
             title="调研完成"
             description={`"${topic}" 报告已生成`}

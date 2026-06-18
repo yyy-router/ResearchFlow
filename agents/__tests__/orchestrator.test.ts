@@ -94,6 +94,7 @@ vi.mock("@opentelemetry/api", () => ({
 }));
 
 vi.mock("node:crypto", () => ({
+  default: { randomUUID: vi.fn(() => "test-id") },
   randomUUID: vi.fn(() => "test-id"),
 }));
 
@@ -194,7 +195,8 @@ describe("runResearch", () => {
     expect(mockRunResearcher).toHaveBeenCalledWith(
       "方向A",
       "finding_dir-a.md",
-      expect.objectContaining({ bochaApiKey: "bocha-test" })
+      expect.objectContaining({ bochaApiKey: "bocha-test" }),
+      expect.any(Function)
     );
   });
 
@@ -279,5 +281,42 @@ describe("runResearch", () => {
     if (errorEvent?.type === "error") {
       expect(errorEvent.data.message).toContain("搜索服务不可用");
     }
+  });
+
+  it("阶段 2: 多个子方向时全部并发执行", async () => {
+    await writeFile("test-id", "research_plan.md", planWithSlugs([
+      { slug: "dir-a", title: "方向A" },
+      { slug: "dir-b", title: "方向B" },
+      { slug: "dir-c", title: "方向C" },
+    ]));
+
+    const controller = new AbortController();
+    await runResearch(baseConfig, controller.signal);
+    await waitForBackground();
+
+    // All 3 subtopics researched
+    expect(mockRunResearcher).toHaveBeenCalledTimes(3);
+    // All research_start events fired
+    const startEvents = eventsEmitted.filter((e) => e.type === "research_start");
+    expect(startEvents).toHaveLength(3);
+    // All research_done events fired
+    const doneEvents = eventsEmitted.filter((e) => e.type === "research_done");
+    expect(doneEvents).toHaveLength(3);
+  });
+
+  it("阶段 2: 传递 runResearch 预定义 subtopics 跳过 Phase 1", async () => {
+    const controller = new AbortController();
+    await runResearch(baseConfig, controller.signal, [
+      { slug: "custom-a", title: "自定义A" },
+      { slug: "custom-b", title: "自定义B" },
+    ]);
+    await waitForBackground();
+
+    // Used provided subtopics, did not call plan agent
+    expect(mockCreatePlanAgent).not.toHaveBeenCalled();
+    expect(mockRunResearcher).toHaveBeenCalledTimes(2);
+    expect(mockRunResearcher).toHaveBeenCalledWith(
+      "自定义A", "finding_custom-a.md", expect.anything(), expect.any(Function)
+    );
   });
 });

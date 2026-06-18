@@ -10,7 +10,10 @@ interface BochaWebPage {
   dateLastCrawled: string;
 }
 
-export function createBochaSearchTool(apiKey: string) {
+export function createBochaSearchTool(
+  apiKey: string,
+  onResults?: (query: string, results: { title: string; snippet: string }[]) => void
+) {
   return tool(
     async ({ query, count }) => {
       console.log(`[Bocha] 搜索: "${query}" (count: ${count})`);
@@ -54,6 +57,9 @@ export function createBochaSearchTool(apiKey: string) {
       }));
 
       console.log(`[Bocha] 返回 ${results.length} 条结果`);
+      if (onResults) {
+        onResults(query, results.map((r) => ({ title: r.title, snippet: r.snippet })));
+      }
       return JSON.stringify(results, null, 2);
     },
     {

@@ -8,12 +8,13 @@ import type { AgentConfig } from "@/lib/types";
 export async function runResearcher(
   subtopic: string,
   outputFilename: string,
-  config: AgentConfig & { bochaApiKey: string }
+  config: AgentConfig & { bochaApiKey: string },
+  onSearchResults?: (query: string, results: { title: string; snippet: string }[]) => void
 ): Promise<string> {
   const agent = createAgent({
     model: resolveModel(config),
     tools: [
-      createBochaSearchTool(config.bochaApiKey),
+      createBochaSearchTool(config.bochaApiKey, onSearchResults),
       createWriteFileTool(config.researchId),
     ],
     systemPrompt: `你是一个专注的调研员。对子主题进行搜索调研，整理关键发现。

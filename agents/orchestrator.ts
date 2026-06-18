@@ -121,8 +121,7 @@ export async function runResearch(
         title: `[${s.slug}] ${s.title}`,
         status: "pending" as const,
       }));
-      await emit({ type: "plan", data: { topic: config.topic, todoList: todoItems } });
-
+      await emit({ type: "plan", data: { topic: config.topic, todoList: todoItems, researchId: id } });
       // — Phase 2: Research —
       const researcherConfig = {
         bochaApiKey: config.bochaApiKey,
@@ -132,27 +131,30 @@ export async function runResearch(
         llmBaseUrl: config.llmBaseUrl,
         model: config.model,
       };
-      const findingFiles: string[] = [];
-
-      for (let i = 0; i < resolvedSubtopics.length; i++) {
-        const { slug, title } = resolvedSubtopics[i];
-        const filename = `finding_${slug}.md`;
-        await withSpan(`Research: ${slug}`, async () => {
-          console.log(`[Research] 开始调研子方向: ${title} → ${filename}`);
-          await emit({ type: "research_start", data: { subtopic: title } });
-          await emit({ type: "research_progress", data: { subtopic: title, snippet: "正在搜索..." } });
-          await runResearcher(title, filename, researcherConfig);
-          if (await fileExists(id, filename)) {
-            console.log(`[Research] 完成: ${filename} 已写入`);
-          } else {
-            console.log(`[Research] 警告: ${filename} 未生成，写入占位文件`);
-            await writeFile(id, filename, `# 子主题：${title}\n\n未能获取到相关资料，Agent 未调用 write_file。\n`);
-          }
-          findingFiles.push(filename);
-          todoItems[i].status = "completed";
-          await emit({ type: "research_done", data: { subtopic: title } });
-        });
-      }
+      // — Phase 2: Research (parallel) —
+      const findingFiles = await Promise.all(
+        resolvedSubtopics.map(async ({ slug, title }, i) => {
+          const filename = `finding_${slug}.md`;
+          await withSpan(`Research: ${slug}`, async () => {
+            console.log(`[Research] 开始调研子方向: ${title} → ${filename}`);
+            await emit({ type: "research_start", data: { subtopic: title } });
+            const onSearchResults = (query: string, results: { title: string; snippet: string }[]) => {
+              const preview = results.slice(0, 3).map((r) => r.title).join("；");
+              emit({ type: "research_progress", data: { subtopic: title, snippet: `搜索"${query}" 返回 ${results.length} 条: ${preview}` } });
+            };
+            await runResearcher(title, filename, researcherConfig, onSearchResults);
+            if (await fileExists(id, filename)) {
+              console.log(`[Research] 完成: ${filename} 已写入`);
+            } else {
+              console.log(`[Research] 警告: ${filename} 未生成，写入占位文件`);
+              await writeFile(id, filename, `# 子主题：${title}\n\n未能获取到相关资料。\n`);
+            }
+            todoItems[i].status = "completed";
+            await emit({ type: "research_done", data: { subtopic: title } });
+          });
+          return filename;
+        })
+      );
 
       // — Phase 3: Analysis —
       const allFindings = await Promise.all(findingFiles.map((f) => readFile(id, f)));
