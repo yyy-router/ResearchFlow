@@ -2,6 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { ReportViewer } from "@/components/report-viewer";
 import { ReportNav } from "@/components/report-nav";
+import { ReportActions } from "@/components/report-actions";
 import { fileExists, readFile } from "@/lib/storage";
 
 interface ReportPageProps {
@@ -25,11 +26,12 @@ export default async function ReportPage({ params }: ReportPageProps) {
 
   return (
     <main className="max-w-5xl mx-auto px-4 py-8">
-      <div className="flex items-center gap-3 mb-8">
+      <div className="flex items-center gap-3 mb-8 print:hidden">
         <Link href="/" className="inline-flex items-center justify-center size-8 rounded-md hover:bg-muted hover:text-foreground transition-colors">
           <ArrowLeft className="w-4 h-4" />
         </Link>
-        <h1 className="text-xl font-serif font-semibold">调研报告</h1>
+        <h1 className="text-xl font-serif font-semibold flex-1">调研报告</h1>
+        <ReportActions />
       </div>
 
       <div className="flex gap-8">
