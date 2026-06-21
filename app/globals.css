@@ -126,11 +126,22 @@
   }
 }
 
+/* ── Long-report rendering optimisation ── */
+.report-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 500px;
+}
+
 /* ── Print styles for report export ── */
 @media print {
   @page {
     margin: 2cm;
     size: A4;
+  }
+
+  .report-section {
+    content-visibility: visible;
+    contain-intrinsic-size: none;
   }
 
   header, nav, aside, .print\:hidden {
