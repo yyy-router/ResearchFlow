@@ -5,7 +5,7 @@ import { createSSEStream } from "@/lib/sse";
 import { createResearchDir, readFile, writeFile, fileExists } from "@/lib/storage";
 import type { ResearchConfig, TodoItem, SubtopicEntry, AgentConfig } from "@/lib/types";
 import { getCallbacks, withSpan } from "@/lib/tracing";
-import { createPlanAgent, createDraftAgent, createFinalizeAgent } from "@/lib/agent";
+import { createPlanAgent, createDraftAgent, createFinalizeAgent, createSectionFinalizeAgent, createAssemblyAgent } from "@/lib/agent";
 import { randomUUID } from "node:crypto";
 
 function parseSubtopicsFromPlan(planContent: string): SubtopicEntry[] {
@@ -215,18 +215,152 @@ export async function runResearch(
       await emit({ type: "finalizing" });
       await withSpan("Phase 6: Finalize", async () => {
         const reviewContent = await readFile(id, "review_notes.md");
-        const finalAgent = createFinalizeAgent(agentConfig);
-        await finalAgent.invoke(
-          {
-            messages: [
+
+        // Split draft into sections by h2 boundaries
+        const parts = draftContent.split(/^(?=## )/m);
+        const hasIntro = parts.length > 0 && !parts[0].startsWith("## ");
+        const intro = hasIntro ? parts[0] : null;
+        const sections = hasIntro ? parts.slice(1) : parts;
+
+        if (sections.length <= 1) {
+          // Fallback: single-call finalize for small reports
+          const finalAgent = createFinalizeAgent(agentConfig);
+          await finalAgent.invoke(
+            {
+              messages: [
+                {
+                  role: "user",
+                  content: `根据审阅意见修订草稿，写入 final_report.md。\n\n## 草稿\n\n${draftContent}\n\n## 审阅意见\n\n${reviewContent}`,
+                },
+              ],
+            },
+            { callbacks, recursionLimit: 30 }
+          );
+        } else {
+          // Build section metadata
+          const allSectionTitles: string[] = sections.map((s) => {
+            const m = s.match(/^## (.+)$/m);
+            return m?.[1] || "未命名";
+          });
+
+          const partsList: { title: string; file: string }[] = [];
+          if (intro) {
+            partsList.push({ title: "引言", file: "final_part_intro.md" });
+          }
+          sections.forEach((_, i) => {
+            partsList.push({
+              title: allSectionTitles[i],
+              file: `final_part_${i}.md`,
+            });
+          });
+
+          // Phase 6a: Parallel section finalization
+          await withSpan("Phase 6a: Section finalize", async () => {
+            // Finalize intro (if present) + body sections in parallel
+            const tasks = sections.map(async (sectionContent, i) => {
+              const partIdx = i + 1; // 1-based for user messages
+              const outputFile = `final_part_${i}.md`;
+
+              const sectionAgent = createSectionFinalizeAgent(agentConfig, {
+                sectionIndex: hasIntro ? partIdx + 1 : partIdx,
+                totalSections: partsList.length,
+                allSectionTitles: partsList.map((p) => p.title),
+                outputFile,
+              });
+
+              await sectionAgent.invoke(
+                {
+                  messages: [
+                    {
+                      role: "user",
+                      content: `根据审阅意见修订以下章节。
+
+## 当前章节（${hasIntro ? partIdx + 1 : partIdx}/${partsList.length}）
+
+${sectionContent}
+
+## 审阅意见
+
+${reviewContent}
+
+将修订后的章节写入 ${outputFile}。`,
+                    },
+                  ],
+                },
+                { callbacks, recursionLimit: 20 }
+              );
+            });
+
+            // If intro exists, finalize it in parallel with sections
+            if (intro) {
+              tasks.push(
+                (async () => {
+                  const outputFile = "final_part_intro.md";
+                  const sectionAgent = createSectionFinalizeAgent(agentConfig, {
+                    sectionIndex: 1,
+                    totalSections: partsList.length,
+                    allSectionTitles: partsList.map((p) => p.title),
+                    outputFile,
+                  });
+
+                  await sectionAgent.invoke(
+                    {
+                      messages: [
+                        {
+                          role: "user",
+                          content: `根据审阅意见修订引言部分。
+
+## 当前章节（1/${partsList.length}）
+
+${intro}
+
+## 审阅意见
+
+${reviewContent}
+
+将修订后的引言写入 ${outputFile}。`,
+                        },
+                      ],
+                    },
+                    { callbacks, recursionLimit: 20 }
+                  );
+                })()
+              );
+            }
+
+            await Promise.all(tasks);
+          });
+
+          // Assemble: read all parts and concatenate
+          const finalParts: string[] = [];
+          for (const part of partsList) {
+            try {
+              const content = await readFile(id, part.file);
+              finalParts.push(content);
+            } catch {
+              console.warn(`[Finalize] 缺失分块: ${part.file}，跳过`);
+            }
+          }
+          await writeFile(id, "final_report.md", finalParts.join("\n\n"));
+          const assembledContent = finalParts.join("\n\n");
+
+          // Phase 6b: Assembly pass — light coherence check
+          await emit({ type: "assembly_start" });
+          await withSpan("Phase 6b: Assembly", async () => {
+            const assemblyAgent = createAssemblyAgent(agentConfig);
+            await assemblyAgent.invoke(
               {
-                role: "user",
-                content: `根据审阅意见修订草稿，写入 final_report.md。\n\n## 草稿\n\n${draftContent}\n\n## 审阅意见\n\n${reviewContent}`,
+                messages: [
+                  {
+                    role: "user",
+                    content: `检查以下报告的全稿连贯性，去重并添加过渡句，然后将修订后的完整报告写入 final_report.md。\n\n## 待汇总报告\n\n${assembledContent}`,
+                  },
+                ],
               },
-            ],
-          },
-          { callbacks, recursionLimit: 30 }
-        );
+              { callbacks, recursionLimit: 30 }
+            );
+          });
+        }
       });
 
       await emit({ type: "complete", data: { reportUrl: `/api/report/${id}` } });
