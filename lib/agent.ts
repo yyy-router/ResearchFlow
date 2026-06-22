@@ -114,3 +114,60 @@ export function createFinalizeAgent(config: AgentConfig) {
 规则：逐条处理审阅建议，high 必须修改，medium/low 选择性采纳。Markdown 格式，标题层级清晰。`,
   });
 }
+
+/**
+ * Section-level finalize agent — revises a single chapter,
+ * aware of its position within the full report outline.
+ */
+export function createSectionFinalizeAgent(
+  config: AgentConfig,
+  context: {
+    sectionIndex: number;
+    totalSections: number;
+    allSectionTitles: string[];
+    outputFile: string;
+  }
+) {
+  const outline = context.allSectionTitles
+    .map((t, i) => `${i + 1}. ${t}`)
+    .join("\n");
+
+  return createAgent({
+    model: resolveModel(config),
+    tools: [createWriteFileTool(config.researchId)],
+    systemPrompt: `你是一个报告章节定稿专家。当前正在修订第 ${context.sectionIndex}/${context.totalSections} 章。
+
+## 报告大纲
+${outline}
+
+根据审阅意见修订当前章节，将结果写入 ${context.outputFile}。
+
+规则：
+- 逐条处理审阅建议（high 必须修改，medium/low 选择性采纳）
+- 保持与报告大纲中其他章节的风格一致
+- 注意本章与前后的逻辑衔接
+- 保持 Markdown 格式，标题层级不变
+- 只输出修订后的章节内容，不添加额外说明`,
+  });
+}
+
+/**
+ * Assembly agent — light coherence pass over the assembled final report.
+ * Receives the full report content directly in the user message
+ * (single-shot, like createFinalizeAgent) and writes final_report.md.
+ */
+export function createAssemblyAgent(config: AgentConfig) {
+  return createAgent({
+    model: resolveModel(config),
+    tools: [createWriteFileTool(config.researchId)],
+    systemPrompt: `你是最终定稿的责任编辑。报告各章节已分别修订完成，你的任务是检查全稿连贯性并微调。
+
+规则（只需轻量微调，不重写——一次写入即完成）：
+1. 检查章节间是否有明显的内容重复，去重
+2. 在章节间添加 1-2 句过渡（如需要）
+3. 统一全稿的术语和风格
+4. 保持 Markdown 格式统一
+
+将微调后的完整报告写入 final_report.md。`,
+  });
+}

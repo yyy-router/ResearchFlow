@@ -93,6 +93,10 @@ export default function Home() {
             setCurrentPhase("finalizing");
             setPhaseStatus({ phase: "finalizing", message: "正在根据审阅意见修订定稿..." });
             break;
+          case "assembly_start":
+            setCurrentPhase("assembly");
+            setPhaseStatus({ phase: "assembly", message: "正在检查全稿连贯性，微调过渡..." });
+            break;
           case "complete":
             setCurrentPhase(null);
             setReportId(event.data.reportUrl.split("/").pop() ?? "");

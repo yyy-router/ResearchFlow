@@ -9,6 +9,8 @@ const {
   mockCreatePlanAgent,
   mockCreateDraftAgent,
   mockCreateFinalizeAgent,
+  mockCreateSectionFinalizeAgent,
+  mockCreateAssemblyAgent,
 } = vi.hoisted(() => ({
   mockClose: vi.fn(),
   mockRunResearcher: vi.fn(),
@@ -21,6 +23,12 @@ const {
     invoke: vi.fn().mockResolvedValue(undefined),
   })),
   mockCreateFinalizeAgent: vi.fn(() => ({
+    invoke: vi.fn().mockResolvedValue(undefined),
+  })),
+  mockCreateSectionFinalizeAgent: vi.fn(() => ({
+    invoke: vi.fn().mockResolvedValue(undefined),
+  })),
+  mockCreateAssemblyAgent: vi.fn(() => ({
     invoke: vi.fn().mockResolvedValue(undefined),
   })),
 }));
@@ -57,6 +65,8 @@ vi.mock("@/lib/agent", () => ({
   createPlanAgent: mockCreatePlanAgent,
   createDraftAgent: mockCreateDraftAgent,
   createFinalizeAgent: mockCreateFinalizeAgent,
+  createSectionFinalizeAgent: mockCreateSectionFinalizeAgent,
+  createAssemblyAgent: mockCreateAssemblyAgent,
   createWriteFileTool: vi.fn(),
   createReadFileTool: vi.fn(),
   createListFilesTool: vi.fn(),
@@ -130,6 +140,12 @@ describe("runResearch", () => {
       invoke: vi.fn().mockResolvedValue(undefined),
     }));
     mockCreateFinalizeAgent.mockImplementation(() => ({
+      invoke: vi.fn().mockResolvedValue(undefined),
+    }));
+    mockCreateSectionFinalizeAgent.mockImplementation(() => ({
+      invoke: vi.fn().mockResolvedValue(undefined),
+    }));
+    mockCreateAssemblyAgent.mockImplementation(() => ({
       invoke: vi.fn().mockResolvedValue(undefined),
     }));
     mockRunResearcher.mockImplementation(
@@ -318,5 +334,94 @@ describe("runResearch", () => {
     expect(mockRunResearcher).toHaveBeenCalledWith(
       "自定义A", "finding_custom-a.md", expect.anything(), expect.any(Function)
     );
+  });
+
+  it("阶段 6: 单章节草稿退化为原有单次定稿调用", async () => {
+    await writeFile("test-id", "research_plan.md", planWithSlugs([
+      { slug: "overview", title: "概述" },
+    ]));
+    await writeFile("test-id", "finding_overview.md", "概述内容。");
+    await writeFile("test-id", "draft.md", "# 报告标题\n\n无二级标题的简单草稿。");
+    await writeFile("test-id", "review_notes.md", "# 审阅意见\n无大问题");
+
+    const controller = new AbortController();
+    await runResearch(baseConfig, controller.signal);
+    await waitForBackground();
+
+    // 单章节应使用原始 createFinalizeAgent（退化路径）
+    expect(mockCreateFinalizeAgent).toHaveBeenCalled();
+    // 不应启动分段定稿
+    expect(mockCreateSectionFinalizeAgent).not.toHaveBeenCalled();
+    expect(mockCreateAssemblyAgent).not.toHaveBeenCalled();
+  });
+
+  it("阶段 6: 多章节草稿触发分段定稿 + 汇总校验", async () => {
+    await writeFile("test-id", "research_plan.md", planWithSlugs([
+      { slug: "overview", title: "概述" },
+    ]));
+    await writeFile("test-id", "finding_overview.md", "概述内容。");
+    // Multi-section draft (no intro — starts directly with ##)
+    await writeFile("test-id", "draft.md", [
+      "## 市场分析",
+      "市场分析内容。",
+      "",
+      "## 竞品对比",
+      "竞品对比内容。",
+    ].join("\n"));
+    await writeFile("test-id", "review_notes.md", "# 审阅意见\n需补充数据");
+    // Pre-populate the finalized part files (mock invoke doesn't call writeFile)
+    await writeFile("test-id", "final_part_0.md", "## 市场分析\n修订后。");
+    await writeFile("test-id", "final_part_1.md", "## 竞品对比\n修订后。");
+
+    const controller = new AbortController();
+    await runResearch(baseConfig, controller.signal);
+    await waitForBackground();
+
+    // 多章节应使用分段定稿
+    expect(mockCreateFinalizeAgent).not.toHaveBeenCalled();
+    // 2 个 h2 section → 2 个 section finalize agents (no intro)
+    expect(mockCreateSectionFinalizeAgent).toHaveBeenCalledTimes(2);
+    // 汇总 agent
+    expect(mockCreateAssemblyAgent).toHaveBeenCalledTimes(1);
+    // 应发出 assembly_start 事件
+    const assemblyEvent = eventsEmitted.find((e) => e.type === "assembly_start");
+    expect(assemblyEvent).toBeDefined();
+  });
+
+  it("阶段 6: 有引言的草稿同时定稿引言和各章节", async () => {
+    await writeFile("test-id", "research_plan.md", planWithSlugs([
+      { slug: "overview", title: "概述" },
+    ]));
+    await writeFile("test-id", "finding_overview.md", "概述内容。");
+    // Draft with intro (content before first ##) + 2 h2 sections
+    await writeFile("test-id", "draft.md", [
+      "# 报告标题",
+      "",
+      "这是引言，位于第一个二级标题之前。",
+      "",
+      "## 市场分析",
+      "市场分析内容。",
+      "",
+      "## 竞品对比",
+      "竞品对比内容。",
+    ].join("\n"));
+    await writeFile("test-id", "review_notes.md", "# 审阅意见\n整体良好");
+    // Pre-populate finalized part files
+    await writeFile("test-id", "final_part_intro.md", "# 报告标题\n修订引言。");
+    await writeFile("test-id", "final_part_0.md", "## 市场分析\n修订后。");
+    await writeFile("test-id", "final_part_1.md", "## 竞品对比\n修订后。");
+
+    const controller = new AbortController();
+    await runResearch(baseConfig, controller.signal);
+    await waitForBackground();
+
+    // 引言 + 2 h2 sections = 3 section finalize agents
+    expect(mockCreateSectionFinalizeAgent).toHaveBeenCalledTimes(3);
+    // 应包含 intro 块 (final_part_intro.md)
+    const introCall = mockCreateSectionFinalizeAgent.mock.calls.find(
+      (call: unknown[]) => (call[1] as { outputFile: string }).outputFile === "final_part_intro.md"
+    );
+    expect(introCall).toBeDefined();
+    expect(mockCreateAssemblyAgent).toHaveBeenCalledTimes(1);
   });
 });
