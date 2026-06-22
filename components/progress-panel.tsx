@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, BarChart3, FileText, ClipboardCheck, CheckCheck, Loader2, Sparkles } from "lucide-react";
+import { Search, BarChart3, FileText, ClipboardCheck, CheckCheck, Loader2, Sparkles, Combine } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ResearchEvent, TodoItem } from "@/lib/types";
 
@@ -10,6 +10,7 @@ const phases = [
   { key: "drafting", label: "报告撰写", icon: FileText },
   { key: "reviewing", label: "报告审阅", icon: ClipboardCheck },
   { key: "finalizing", label: "定稿", icon: CheckCheck },
+  { key: "assembly", label: "汇总", icon: Combine },
 ] as const;
 
 interface ProgressPanelProps {
@@ -66,6 +67,12 @@ export function ProgressPanel({ events, todoItems, currentPhase, researchProgres
     }
     if (key === "finalizing") {
       if (events.some((e) => e.type === "finalizing")) {
+        return events.some((e) => e.type === "assembly_start") || isComplete ? "done" : "running";
+      }
+      return "idle";
+    }
+    if (key === "assembly") {
+      if (events.some((e) => e.type === "assembly_start")) {
         return isComplete ? "done" : "running";
       }
       return "idle";
