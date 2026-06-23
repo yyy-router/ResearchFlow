@@ -1,16 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { FileText, Trash2 } from "lucide-react";
+import { FileText, Trash2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ResearchRecord } from "@/lib/types";
 
 interface ResearchCardProps {
   record: ResearchRecord;
   onDelete: (id: string) => void;
+  onContinue: (id: string) => void;
 }
 
-export function ResearchCard({ record, onDelete }: ResearchCardProps) {
+export function ResearchCard({ record, onDelete, onContinue }: ResearchCardProps) {
   const date = record.createdAt
     ? new Date(record.createdAt).toLocaleDateString("zh-CN", {
         year: "numeric", month: "2-digit", day: "2-digit",
@@ -33,6 +34,15 @@ export function ResearchCard({ record, onDelete }: ResearchCardProps) {
             异常
           </span>
         )}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onContinue(record.id)}
+          className="h-8 w-8"
+          title="继续调研"
+        >
+          <Play className="w-3.5 h-3.5 text-muted-foreground" />
+        </Button>
         <Button variant="ghost" size="icon" onClick={() => onDelete(record.id)} className="h-8 w-8">
           <Trash2 className="w-3.5 h-3.5 text-muted-foreground" />
         </Button>

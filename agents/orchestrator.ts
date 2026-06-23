@@ -8,6 +8,8 @@ import { getCallbacks, withSpan } from "@/lib/tracing";
 import { createPlanAgent, createDraftAgent, createFinalizeAgent, createSectionFinalizeAgent, createAssemblyAgent } from "@/lib/agent";
 import { randomUUID } from "node:crypto";
 
+const PLACEHOLDER_MARKER = "未能获取到相关资料";
+
 function parseSubtopicsFromPlan(planContent: string): SubtopicEntry[] {
   const slugRegex = /^\d+\.\s+\[([a-z0-9-]+)\]\s+(.+)$/mgi;
   const subtopics: SubtopicEntry[] = [];
@@ -94,26 +96,33 @@ export async function runResearch(
       };
       const callbacks = getCallbacks();
 
-      // — Phase 1: Plan (skip if subtopics provided) —
+      // — Phase 1: Plan (skip if file exists from previous run) —
       let resolvedSubtopics = subtopics;
       if (!resolvedSubtopics) {
-        await withSpan("Phase 1: Plan", async () => {
-          const planAgent = createPlanAgent(agentConfig);
-          await planAgent.invoke(
-            {
-              messages: [
-                {
-                  role: "user",
-                  content: `为调研主题制定计划，拆解为 3-6 个聚焦的子研究方向。\n\n调研主题：${config.topic}`,
-                },
-              ],
-            },
-            { callbacks, recursionLimit: 30 }
-          );
-        });
+        if (await fileExists(id, "research_plan.md")) {
+          // Resume: parse existing plan
+          const planContent = await readFile(id, "research_plan.md");
+          resolvedSubtopics = parseSubtopicsFromPlan(planContent);
+          console.log("[Plan] 跳过 — 已存在 plan 文件，解析到", resolvedSubtopics.length, "个子方向");
+        } else {
+          await withSpan("Phase 1: Plan", async () => {
+            const planAgent = createPlanAgent(agentConfig);
+            await planAgent.invoke(
+              {
+                messages: [
+                  {
+                    role: "user",
+                    content: `为调研主题制定计划，拆解为 3-6 个聚焦的子研究方向。\n\n调研主题：${config.topic}`,
+                  },
+                ],
+              },
+              { callbacks, recursionLimit: 30 }
+            );
+          });
 
-        const planContent = await readFile(id, "research_plan.md");
-        resolvedSubtopics = parseSubtopicsFromPlan(planContent);
+          const planContent = await readFile(id, "research_plan.md");
+          resolvedSubtopics = parseSubtopicsFromPlan(planContent);
+        }
       }
 
       const todoItems: TodoItem[] = resolvedSubtopics.map((s, i) => ({
@@ -131,11 +140,22 @@ export async function runResearch(
         llmBaseUrl: config.llmBaseUrl,
         model: config.model,
       };
-      // — Phase 2: Research (parallel) —
+      // — Phase 2: Research (parallel, skip valid existing files) —
       const findingFiles = await Promise.all(
         resolvedSubtopics.map(async ({ slug, title }, i) => {
           const filename = `finding_${slug}.md`;
           await withSpan(`Research: ${slug}`, async () => {
+            // Skip if already has valid content from a previous run
+            if (await fileExists(id, filename)) {
+              const existing = await readFile(id, filename);
+              if (existing.length > 80 && !existing.includes(PLACEHOLDER_MARKER)) {
+                console.log(`[Research] 跳过: ${filename} 已有有效内容`);
+                todoItems[i].status = "completed";
+                await emit({ type: "research_done", data: { subtopic: title } });
+                return;
+              }
+              console.log(`[Research] 重新调研: ${filename} 内容为占位或过短`);
+            }
             console.log(`[Research] 开始调研子方向: ${title} → ${filename}`);
             await emit({ type: "research_start", data: { subtopic: title } });
             const onSearchResults = (query: string, results: { title: string; snippet: string }[]) => {
@@ -145,18 +165,19 @@ export async function runResearch(
             await runResearcher(title, filename, researcherConfig, onSearchResults);
             if (await fileExists(id, filename)) {
               console.log(`[Research] 完成: ${filename} 已写入`);
+              todoItems[i].status = "completed";
             } else {
               console.log(`[Research] 警告: ${filename} 未生成，写入占位文件`);
-              await writeFile(id, filename, `# 子主题：${title}\n\n未能获取到相关资料。\n`);
+              await writeFile(id, filename, `# 子主题：${title}\n\n${PLACEHOLDER_MARKER}。\n`);
+              todoItems[i].status = "completed";
             }
-            todoItems[i].status = "completed";
             await emit({ type: "research_done", data: { subtopic: title } });
           });
           return filename;
         })
       );
 
-      // — Phase 3: Analysis —
+      // — Phase 3: Analysis (skip if file exists) —
       const allFindings = await Promise.all(findingFiles.map((f) => readFile(id, f)));
       const combinedFindings = allFindings.join("\n");
       const hasNumbers = combinedFindings.match(
@@ -164,9 +185,63 @@ export async function runResearch(
       );
 
       if (hasNumbers && hasNumbers.length >= 3) {
-        await withSpan("Phase 3: Analysis", async () => {
-          await emit({ type: "analysis_start", data: { title: "数值分析" } });
-          await runAnalyst("对比分析调研发现的各项数据指标", "analysis_1.md", findingFiles, {
+        if (await fileExists(id, "analysis_1.md")) {
+          console.log("[Analysis] 跳过 — analysis_1.md 已存在");
+          const analysisContent = await readFile(id, "analysis_1.md");
+          await emit({
+            type: "analysis_done",
+            data: { title: "数值分析", code: "", output: "", conclusion: analysisContent.slice(0, 300) },
+          });
+        } else {
+          await withSpan("Phase 3: Analysis", async () => {
+            await emit({ type: "analysis_start", data: { title: "数值分析" } });
+            await runAnalyst("对比分析调研发现的各项数据指标", "analysis_1.md", findingFiles, {
+              llmApiKey: config.llmApiKey,
+              llmProvider: config.llmProvider,
+              researchId: id,
+              llmBaseUrl: config.llmBaseUrl,
+              model: config.model,
+            });
+          });
+          const analysisContent = await readFile(id, "analysis_1.md");
+          await emit({
+            type: "analysis_done",
+            data: { title: "数值分析", code: "", output: "", conclusion: analysisContent.slice(0, 300) },
+          });
+        }
+      }
+
+      // — Phase 4: Draft (skip if file exists) —
+      let draftContent: string;
+      if (await fileExists(id, "draft.md")) {
+        console.log("[Draft] 跳过 — draft.md 已存在");
+        draftContent = await readFile(id, "draft.md");
+      } else {
+        await emit({ type: "drafting" });
+        await withSpan("Phase 4: Draft", async () => {
+          const draftAgent = createDraftAgent(agentConfig);
+          await draftAgent.invoke(
+            {
+              messages: [
+                {
+                  role: "user",
+                  content: `撰写调研报告草稿。先浏览工作区文件了解调研结果，再整合撰写，写入 draft.md。\n\n调研主题：${config.topic}`,
+                },
+              ],
+            },
+            { callbacks, recursionLimit: 50 }
+          );
+        });
+        draftContent = await readFile(id, "draft.md");
+      }
+
+      // — Phase 5: Review (skip if file exists) —
+      if (await fileExists(id, "review_notes.md")) {
+        console.log("[Review] 跳过 — review_notes.md 已存在");
+      } else {
+        await emit({ type: "reviewing" });
+        await withSpan("Phase 5: Review", async () => {
+          await runEditor(draftContent, "review_notes.md", {
             llmApiKey: config.llmApiKey,
             llmProvider: config.llmProvider,
             researchId: id,
@@ -174,42 +249,7 @@ export async function runResearch(
             model: config.model,
           });
         });
-        const analysisContent = await readFile(id, "analysis_1.md");
-        await emit({
-          type: "analysis_done",
-          data: { title: "数值分析", code: "", output: "", conclusion: analysisContent.slice(0, 300) },
-        });
       }
-
-      // — Phase 4: Draft —
-      await emit({ type: "drafting" });
-      await withSpan("Phase 4: Draft", async () => {
-        const draftAgent = createDraftAgent(agentConfig);
-        await draftAgent.invoke(
-          {
-            messages: [
-              {
-                role: "user",
-                content: `撰写调研报告草稿。先浏览工作区文件了解调研结果，再整合撰写，写入 draft.md。\n\n调研主题：${config.topic}`,
-              },
-            ],
-          },
-          { callbacks, recursionLimit: 50 }
-        );
-      });
-      const draftContent = await readFile(id, "draft.md");
-
-      // — Phase 5: Review —
-      await emit({ type: "reviewing" });
-      await withSpan("Phase 5: Review", async () => {
-        await runEditor(draftContent, "review_notes.md", {
-          llmApiKey: config.llmApiKey,
-          llmProvider: config.llmProvider,
-          researchId: id,
-          llmBaseUrl: config.llmBaseUrl,
-          model: config.model,
-        });
-      });
 
       // — Phase 6: Finalize —
       await emit({ type: "finalizing" });

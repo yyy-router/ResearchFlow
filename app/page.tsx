@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { useConfig } from "@/components/config-provider";
@@ -11,7 +11,7 @@ import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { PlanLoading } from "@/components/plan-loading";
 import { Button } from "@/components/ui/button";
-import { parseSSELine } from "@/lib/api-helpers";
+import { parseSSELine, parsePlanSlugs } from "@/lib/api-helpers";
 import type { ResearchEvent, TodoItem } from "@/lib/types";
 
 type Stage = "input" | "plan" | "running" | "done";
@@ -31,6 +31,38 @@ export default function Home() {
   const abortRef = useRef<AbortController | null>(null);
   const isRunPhaseRef = useRef(false);
   const researchIdRef = useRef<string>("");
+
+  // ── Resume from history ──
+  useEffect(() => {
+    const resumeId = sessionStorage.getItem("researchResumeId");
+    if (!resumeId) return;
+    sessionStorage.removeItem("researchResumeId");
+    researchIdRef.current = resumeId;
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/research/${resumeId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const { id, plan } = data as { id: string; plan: string };
+        const entries = parsePlanSlugs(plan);
+        if (entries.length === 0) return;
+
+        // Extract topic from plan (first h1 line)
+        const topicMatch = plan.match(/^#\s+(.+)$/m);
+        const planTopic = topicMatch?.[1] || "";
+        setTopic(planTopic);
+
+        const items: TodoItem[] = entries.map((s, i) => ({
+          id: `todo-${i}`,
+          title: `[${s.slug}] ${s.title}`,
+          status: "pending" as const,
+        }));
+        setPlanItems(items);
+        setStage("plan");
+      } catch { /* ignore resume errors */ }
+    })();
+  }, []);
 
   const consumeSSE = useCallback(async (response: Response) => {
     if (!response.ok) {
@@ -194,11 +226,6 @@ export default function Home() {
   const handleCancel = useCallback(() => {
     abortRef.current?.abort();
     isRunPhaseRef.current = false;
-    // Clean up server-side temporary directory
-    if (researchIdRef.current) {
-      fetch(`/api/research/${researchIdRef.current}`, { method: "DELETE" }).catch(() => {});
-      researchIdRef.current = "";
-    }
     setStage("input");
     setEvents([]);
     setPlanItems([]);

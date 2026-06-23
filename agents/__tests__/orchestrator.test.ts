@@ -257,26 +257,22 @@ describe("runResearch", () => {
     expect(draft).toBe("# 报告草稿");
   });
 
-  it("阶段 5 & 6: 调用 Editor 并生成 final_report", async () => {
+  it("阶段 4-6: 已存在的中间文件被跳过，定稿后生成 complete", async () => {
     await writeFile("test-id", "research_plan.md", planWithSlugs([
       { slug: "overview", title: "概述" },
     ]));
     await writeFile("test-id", "finding_overview.md", "概述内容。");
     await writeFile("test-id", "draft.md", "# 草稿内容");
     await writeFile("test-id", "review_notes.md", "# 审阅意见\n无大问题");
-    await writeFile("test-id", "final_report.md", "# 最终报告");
     mockRunEditor.mockResolvedValue("review_notes.md");
 
     const controller = new AbortController();
     await runResearch(baseConfig, controller.signal);
     await waitForBackground();
 
-    expect(mockRunEditor).toHaveBeenCalledWith(
-      "# 草稿内容",
-      "review_notes.md",
-      expect.objectContaining({ researchId: "test-id" })
-    );
-
+    // Phases 1-5 all skip (files exist), only Phase 6 runs
+    expect(mockCreateDraftAgent).not.toHaveBeenCalled();
+    expect(mockRunEditor).not.toHaveBeenCalled();
     const completeEvent = eventsEmitted.find((e) => e.type === "complete");
     expect(completeEvent).toBeDefined();
   });
