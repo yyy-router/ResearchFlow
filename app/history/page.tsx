@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { ResearchCard } from "@/components/research-card";
@@ -9,6 +10,7 @@ import { EmptyState } from "@/components/empty-state";
 import type { ResearchRecord } from "@/lib/types";
 
 export default function HistoryPage() {
+  const router = useRouter();
   const [records, setRecords] = useState<ResearchRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -29,6 +31,11 @@ export default function HistoryPage() {
       setRecords((prev) => prev.filter((r) => r.id !== id));
     } catch { /* silently fail */ }
   }, []);
+
+  const handleContinue = useCallback((id: string) => {
+    sessionStorage.setItem("researchResumeId", id);
+    router.push("/");
+  }, [router]);
 
   return (
     <main className="max-w-2xl mx-auto px-4 py-8 space-y-6">
@@ -52,7 +59,7 @@ export default function HistoryPage() {
       ) : (
         <div className="space-y-2">
           {records.map((r) => (
-            <ResearchCard key={r.id} record={r} onDelete={handleDelete} />
+            <ResearchCard key={r.id} record={r} onDelete={handleDelete} onContinue={handleContinue} />
           ))}
         </div>
       )}
