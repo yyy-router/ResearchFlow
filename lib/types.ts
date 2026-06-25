@@ -57,5 +57,8 @@ export type ResearchEvent =
   | { type: "reviewing" }
   | { type: "finalizing" }
   | { type: "assembly_start" }
+  | { type: "report_stream"; data: { content: string } }
+  | { type: "report_section"; data: { index: number; content: string } }
+  | { type: "report_final"; data: { content: string } }
   | { type: "complete"; data: { reportUrl: string } }
   | { type: "error"; data: { message: string } };

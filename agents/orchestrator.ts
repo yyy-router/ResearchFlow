@@ -276,6 +276,14 @@ export async function runResearch(
             },
             { callbacks, recursionLimit: 30 }
           );
+
+          // Stream final report for single-section path too
+          try {
+            const finalContent = await readFile(id, "final_report.md");
+            await emit({ type: "report_final", data: { content: finalContent } });
+          } catch {
+            // Final report missing — skip streaming
+          }
         } else {
           // Build section metadata
           const allSectionTitles: string[] = sections.map((s) => {
@@ -329,6 +337,14 @@ ${reviewContent}
                 },
                 { callbacks, recursionLimit: 20 }
               );
+
+              // Stream finalized section to frontend
+              try {
+                const finalSection = await readFile(id, outputFile);
+                await emit({ type: "report_section", data: { index: hasIntro ? partIdx + 1 : partIdx, content: finalSection } });
+              } catch {
+                // Section file missing — skip streaming
+              }
             });
 
             // If intro exists, finalize it in parallel with sections
@@ -364,6 +380,14 @@ ${reviewContent}
                     },
                     { callbacks, recursionLimit: 20 }
                   );
+
+                  // Stream finalized intro to frontend (index 0 = intro)
+                  try {
+                    const finalIntro = await readFile(id, outputFile);
+                    await emit({ type: "report_section", data: { index: 0, content: finalIntro } });
+                  } catch {
+                    // Intro file missing — skip streaming
+                  }
                 })()
               );
             }
@@ -400,6 +424,14 @@ ${reviewContent}
               { callbacks, recursionLimit: 30 }
             );
           });
+
+          // Stream final assembled report to frontend
+          try {
+            const finalContent = await readFile(id, "final_report.md");
+            await emit({ type: "report_final", data: { content: finalContent } });
+          } catch {
+            // Final report missing — skip streaming
+          }
         }
       });
 
