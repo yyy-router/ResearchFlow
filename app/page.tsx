@@ -10,6 +10,7 @@ import { ProgressPanel } from "@/components/progress-panel";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { PlanLoading } from "@/components/plan-loading";
+import { StreamingReport } from "@/components/streaming-report";
 import { Button } from "@/components/ui/button";
 import { parseSSELine, parsePlanSlugs } from "@/lib/api-helpers";
 import type { ResearchEvent, TodoItem } from "@/lib/types";
@@ -31,6 +32,8 @@ export default function Home() {
   const abortRef = useRef<AbortController | null>(null);
   const isRunPhaseRef = useRef(false);
   const researchIdRef = useRef<string>("");
+  const [streamingContent, setStreamingContent] = useState<string>("");
+  const sectionMapRef = useRef<Map<number, string>>(new Map());
 
   // ── Resume from history ──
   useEffect(() => {
@@ -129,6 +132,24 @@ export default function Home() {
             setCurrentPhase("assembly");
             setPhaseStatus({ phase: "assembly", message: "正在检查全稿连贯性，微调过渡..." });
             break;
+          case "report_stream":
+            // Draft ready — show as initial preview
+            setStreamingContent(event.data.content);
+            break;
+          case "report_section": {
+            // Section finalized — insert at correct position
+            const { index, content } = event.data;
+            sectionMapRef.current.set(index, content);
+            const ordered = Array.from(sectionMapRef.current.entries())
+              .sort(([a], [b]) => a - b)
+              .map(([, c]) => c);
+            setStreamingContent(ordered.join("\n\n"));
+            break;
+          }
+          case "report_final":
+            // Final assembled report
+            setStreamingContent(event.data.content);
+            break;
           case "complete":
             setCurrentPhase(null);
             setReportId(event.data.reportUrl.split("/").pop() ?? "");
@@ -148,6 +169,8 @@ export default function Home() {
     setError("");
     setEvents([]);
     setResearchProgress({});
+    setStreamingContent("");
+    sectionMapRef.current.clear();
     setTopic(t);
     setStage("running");
     isRunPhaseRef.current = false;
@@ -185,6 +208,8 @@ export default function Home() {
     setCurrentPhase(null);
     setResearchProgress({});
     setPhaseStatus(null);
+    setStreamingContent("");
+    sectionMapRef.current.clear();
     isRunPhaseRef.current = true;
 
     const subtopics = selected.map((item) => {
@@ -277,6 +302,10 @@ export default function Home() {
             currentPhase={currentPhase}
             researchProgress={researchProgress}
             phaseStatus={phaseStatus}
+          />
+          <StreamingReport
+            content={streamingContent}
+            currentPhase={currentPhase}
           />
         </div>
       )}
