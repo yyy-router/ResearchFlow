@@ -6,6 +6,7 @@ const {
   mockRunResearcher,
   mockRunAnalyst,
   mockRunEditor,
+  mockGeneratePlan,
   mockCreatePlanAgent,
   mockCreateDraftAgent,
   mockCreateFinalizeAgent,
@@ -16,6 +17,9 @@ const {
   mockRunResearcher: vi.fn(),
   mockRunAnalyst: vi.fn(),
   mockRunEditor: vi.fn(),
+  mockGeneratePlan: vi.fn(async (_config: unknown, _topic: string) => {
+    return storageData["research_plan.md"] || "# 调研计划：测试\n\n## 子研究方向\n1. [overview] 概述\n\n## Todo\n- [ ] [overview] 概述\n";
+  }),
   mockCreatePlanAgent: vi.fn(() => ({
     invoke: vi.fn().mockResolvedValue(undefined),
   })),
@@ -62,6 +66,7 @@ vi.mock("@/lib/storage", () => ({
 }));
 
 vi.mock("@/lib/agent", () => ({
+  generatePlan: mockGeneratePlan,
   createPlanAgent: mockCreatePlanAgent,
   createDraftAgent: mockCreateDraftAgent,
   createFinalizeAgent: mockCreateFinalizeAgent,
@@ -324,8 +329,8 @@ describe("runResearch", () => {
     ]);
     await waitForBackground();
 
-    // Used provided subtopics, did not call plan agent
-    expect(mockCreatePlanAgent).not.toHaveBeenCalled();
+    // Used provided subtopics, did not call plan generation
+    expect(mockGeneratePlan).not.toHaveBeenCalled();
     expect(mockRunResearcher).toHaveBeenCalledTimes(2);
     expect(mockRunResearcher).toHaveBeenCalledWith(
       "自定义A", "finding_custom-a.md", expect.anything(), expect.any(Function)
