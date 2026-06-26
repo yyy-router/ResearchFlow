@@ -5,7 +5,7 @@ import { createSSEStream } from "@/lib/sse";
 import { createResearchDir, readFile, writeFile, fileExists } from "@/lib/storage";
 import type { ResearchConfig, TodoItem, SubtopicEntry, AgentConfig } from "@/lib/types";
 import { getCallbacks, withSpan } from "@/lib/tracing";
-import { createPlanAgent, createDraftAgent, createFinalizeAgent, createSectionFinalizeAgent, createAssemblyAgent } from "@/lib/agent";
+import { generatePlan, createDraftAgent, createFinalizeAgent, createSectionFinalizeAgent, createAssemblyAgent } from "@/lib/agent";
 import { randomUUID } from "node:crypto";
 
 const PLACEHOLDER_MARKER = "未能获取到相关资料";
@@ -41,18 +41,7 @@ export async function runResearchPlan(config: ResearchConfig, signal: AbortSigna
       };
       const callbacks = getCallbacks();
 
-      const planAgent = createPlanAgent(agentConfig);
-      await planAgent.invoke(
-        {
-          messages: [{
-            role: "user",
-            content: `为调研主题制定计划，拆解为 3-6 个聚焦的子研究方向。\n\n调研主题：${config.topic}`,
-          }],
-        },
-        { callbacks, recursionLimit: 30 }
-      );
-
-      const planContent = await readFile(id, "research_plan.md");
+      const planContent = await generatePlan(agentConfig, config.topic);
       const subtopics = parseSubtopicsFromPlan(planContent);
       const todoItems: TodoItem[] = subtopics.map((s, i) => ({
         id: `todo-${i}`,
@@ -97,8 +86,8 @@ export async function runResearch(
       const callbacks = getCallbacks();
 
       // — Phase 1: Plan (skip if file exists from previous run) —
-      let resolvedSubtopics = subtopics;
-      if (!resolvedSubtopics) {
+      let resolvedSubtopics: SubtopicEntry[] = subtopics ?? [];
+      if (resolvedSubtopics.length === 0) {
         if (await fileExists(id, "research_plan.md")) {
           // Resume: parse existing plan
           const planContent = await readFile(id, "research_plan.md");
@@ -106,22 +95,9 @@ export async function runResearch(
           console.log("[Plan] 跳过 — 已存在 plan 文件，解析到", resolvedSubtopics.length, "个子方向");
         } else {
           await withSpan("Phase 1: Plan", async () => {
-            const planAgent = createPlanAgent(agentConfig);
-            await planAgent.invoke(
-              {
-                messages: [
-                  {
-                    role: "user",
-                    content: `为调研主题制定计划，拆解为 3-6 个聚焦的子研究方向。\n\n调研主题：${config.topic}`,
-                  },
-                ],
-              },
-              { callbacks, recursionLimit: 30 }
-            );
+            const planContent = await generatePlan(agentConfig, config.topic);
+            resolvedSubtopics = parseSubtopicsFromPlan(planContent);
           });
-
-          const planContent = await readFile(id, "research_plan.md");
-          resolvedSubtopics = parseSubtopicsFromPlan(planContent);
         }
       }
 
